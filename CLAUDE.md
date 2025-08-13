@@ -89,7 +89,7 @@ Always use full type annotations, generics, and other modern practices.
 ## Project Setup and Developer Workflows
 
 - Important: BE SURE you read and understand the project setup by reading the
-  pyproject.toml file and the Makefile.
+  pyproject.toml file and the justfile.
 
 - ALWAYS use uv for running all code and managing dependencies.
   Never use direct `pip` or `python` commands.
@@ -101,24 +101,24 @@ Always use full type annotations, generics, and other modern practices.
   ```shell
   
   # Install all dependencies:
-  make install
+  just install
   
   # Run linting (with ruff) and type checking (with basedpyright).
   # Note when you run this, ruff will auto-format and sort imports, resolving any
   # linter warnings about import ordering:
-  make lint
+  just lint
   
   # Run tests:
-  make test
+  just test
   
   # Run uv sync, lint, and test in one command:
-  make
+  just
   ```
 
-- The usual `make test` like standard pytest does not show test output.
+- The usual `just test` like standard pytest does not show test output.
   Run individual tests and see output with `uv run pytest -s some/file.py`.
 
-- Always run `make lint` and `make test` to check your code after changes.
+- Always run `just lint` and `just test` to check your code after changes.
 
 - You must verify there are zero linter warnings/errors or test failures before
   considering any task complete.

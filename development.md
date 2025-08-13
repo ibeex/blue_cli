@@ -13,32 +13,32 @@ fork will make it easier to contribute) and
 
 ## Basic Developer Workflows
 
-The `Makefile` simply offers shortcuts to `uv` commands for developer convenience.
-(For clarity, GitHub Actions don't use the Makefile and just call `uv` directly.)
+The `justfile` simply offers shortcuts to `uv` commands for developer convenience.
+(For clarity, GitHub Actions don't use the justfile and just call `uv` directly.)
 
 ```shell
 # First, install all dependencies and set up your virtual environment.
 # This simply runs `uv sync --all-extras` to install all packages,
 # including dev dependencies and optional dependencies.
-make install
+just install
 
-# Run uv sync, lint, and test (and also generate agent rules):
-make
+# Run uv sync, lint, and test:
+just
 
 # Build wheel:
-make build
+just build
 
 # Linting:
-make lint
+just lint
 
 # Run tests:
-make test
+just test
 
 # Delete all the build artifacts:
-make clean
+just clean
 
 # Upgrade dependencies to compatible versions:
-make upgrade
+just upgrade
 
 # To run tests by hand:
 uv run pytest   # all tests
