@@ -236,8 +236,8 @@ class TestAlbumSearchService:
         result = self.search_service._find_best_artist_match([], "Any Artist")
         assert result is None
 
-    def test_find_best_match_with_debug_output(self, capsys):
-        """Test that debug output is printed during search."""
+    def test_find_best_match_basic_strategy_used(self, capsys):
+        """Test that basic search strategy is used first."""
         recommendation = Recommendation("A.R. Kane", "69")
 
         # Mock successful first search
@@ -245,10 +245,8 @@ class TestAlbumSearchService:
 
         result = self.search_service.find_best_match(recommendation)
 
-        # Capture printed output
-        captured = capsys.readouterr()
-
-        assert "AlbumSearchService#find_best_match search_query: A.R. Kane 69" in captured.out
+        # Verify the tidal service was called with basic query
+        self.mock_tidal_service.search_albums.assert_called_once_with("A.R. Kane 69")
         assert result is not None
 
 
