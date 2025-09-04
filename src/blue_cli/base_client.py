@@ -58,7 +58,9 @@ class BluesoundBaseClient:
         return r
 
     def _parse_xml(self, response) -> dict:
-        obj = xmltodict.parse(response.text, attr_prefix="", dict_constructor=dict)
+        # Handle both Response objects and strings
+        xml_text = response.text if hasattr(response, "text") else response
+        obj = xmltodict.parse(xml_text, attr_prefix="", dict_constructor=dict)
         if obj is None:
             console.show_cursor()
             raise ClickException("Output parsing error")
