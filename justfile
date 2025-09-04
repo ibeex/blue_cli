@@ -33,3 +33,30 @@ clean:
 	-rm -rf .mypy_cache/
 	-rm -rf .venv/
 	-find . -type d -name "__pycache__" -exec rm -rf {} +
+
+# Release with version bump
+release bump="minor":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	
+	# Check working tree is clean
+	if ! git diff-index --quiet HEAD --; then
+		echo "Working tree is not clean. Please commit changes first."
+		exit 1
+	fi
+	
+	# Bump version
+	uv version --bump {{bump}}
+	
+	# Get new version
+	NEW_VERSION=$(uv version | awk '{print $2}')
+	
+	# Add and commit changes
+	git add .
+	git commit -m "Released ${NEW_VERSION}"
+	
+	# Create tag
+	git tag -a "v${NEW_VERSION}" -m "Released version ${NEW_VERSION}"
+	
+	echo "Released version ${NEW_VERSION}"
+	echo "To push: git push && git push --tags"

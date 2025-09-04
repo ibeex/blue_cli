@@ -10,6 +10,7 @@ __version__ = "1.0.0"
 __author__ = "IbeeX"
 
 MEDIA_LOCATION = "Library"
+AI_MODEL = "gpt-5"
 
 home = Path.home()
 cache_path = home / ".cache" / "blue"
