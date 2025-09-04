@@ -71,7 +71,7 @@ class PromptTemplates:
     def recommendation_prompt(artist: str, album: str) -> str:
         """Generate prompt for music recommendations."""
         return dedent(f"""
-            Can you provide a list of 5 bands that are similar in musical style to {artist}
+            Can you provide a list of 5 bands that are similar in musical sound/style to {artist}
             (specifically their album '{album}'), or that share band members, producers,
             or other key collaborators with them?
 
@@ -106,7 +106,7 @@ class PromptTemplates:
             Explain in 1-2 sentences why '{rec_album}' by {rec_artist} was recommended based on
             '{current_album}' by {current_artist}.
 
-            Focus on specific musical connections, shared members, producers, similar sound, era,
+            Focus on specific musical connections, shared members, producers, similar sound/style, era,
             or influence relationships.
         """).strip()
 
@@ -188,23 +188,42 @@ class AlbumSearchService:
         self.tidal_service = tidal_service
 
     def find_best_match(self, recommendation: Recommendation) -> SearchResult | None:
-        """Find the best matching album on Tidal."""
+        """Find the best matching album on Tidal using multiple search strategies."""
         try:
+            # Strategy 1: Search for "Artist Album"
             search_query = f"{recommendation.artist} {recommendation.album}"
             albums = self.tidal_service.search_albums(search_query)
+
+            # Strategy 2: If no results, try searching just the album name
+            if not albums:
+                print(
+                    f"No results for '{search_query}', trying album name only: '{recommendation.album}'"
+                )
+                albums = self.tidal_service.search_albums(recommendation.album)
+                print(f"Album-only search results: {len(albums)} albums found")
+
+            # Strategy 3: If still no results, try artist name variations
+            if not albums:
+                # Try different artist name formats
+                artist_variations = [
+                    recommendation.artist.replace(".", ""),  # Remove periods
+                    recommendation.artist.replace(".", " "),  # Replace periods with spaces
+                    recommendation.artist.replace(" ", ""),  # Remove spaces
+                ]
+
+                for artist_variant in artist_variations:
+                    if artist_variant != recommendation.artist:
+                        variant_query = f"{artist_variant} {recommendation.album}"
+                        print(f"Trying artist variation: '{variant_query}'")
+                        albums = self.tidal_service.search_albums(variant_query)
+                        if albums:
+                            break
 
             if not albums:
                 return None
 
             # Find best match (prefer exact artist match)
-            best_album = None
-            for album in albums:
-                if (
-                    recommendation.artist.lower() in album["artist"].lower()
-                    or album["artist"].lower() in recommendation.artist.lower()
-                ):
-                    best_album = album
-                    break
+            best_album = self._find_best_artist_match(albums, recommendation.artist)
 
             if not best_album:
                 best_album = albums[0]  # Fallback to first result
@@ -222,6 +241,30 @@ class AlbumSearchService:
             raise SearchError(
                 f"Error searching for {recommendation.artist} - {recommendation.album}: {str(e)}"
             ) from e
+
+    def _find_best_artist_match(self, albums: list, target_artist: str) -> dict | None:
+        """Find the album with the best artist name match."""
+        target_lower = target_artist.lower()
+
+        # First pass: look for exact matches (case insensitive)
+        for album in albums:
+            if album["artist"].lower() == target_lower:
+                return album
+
+        # Second pass: look for partial matches
+        for album in albums:
+            album_artist_lower = album["artist"].lower()
+            if target_lower in album_artist_lower or album_artist_lower in target_lower:
+                return album
+
+        # Third pass: try normalized versions (remove periods, spaces)
+        target_normalized = target_lower.replace(".", "").replace(" ", "")
+        for album in albums:
+            album_normalized = album["artist"].lower().replace(".", "").replace(" ", "")
+            if target_normalized == album_normalized:
+                return album
+
+        return None
 
     def add_to_queue(self, search_result: SearchResult) -> bool:
         """Add search result to Tidal queue."""

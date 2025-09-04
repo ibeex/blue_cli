@@ -129,7 +129,7 @@ class TidalService(BluesoundBaseClient):
                 f"[bold blue]{album['title']}[/bold blue] {album['date']} [bold yellow]Tracks:[/bold yellow] {album['tracks']} [bold cyan]Quality:[/bold cyan] {album['quality']}"
             )
 
-    @cache.memoize(expire=60 * 60 * 24 * 7)
+    # @cache.memoize(expire=60 * 60 * 24 * 7)
     def search_albums(self, album: str):
         album_name_url_encoded = urllib.parse.quote(f'"{album}"')
         url = f"Albums?service=Tidal&expr={album_name_url_encoded}"
@@ -138,6 +138,9 @@ class TidalService(BluesoundBaseClient):
         while url:
             r = self._make_request(url)
             obj = self._parse_xml(r)
+            if "error" in obj or "albums" not in obj or "album" not in obj["albums"]:
+                return albums
+
             search_insert = "[]" if isinstance(obj["albums"]["album"], list) else ""
 
             search_string = f'albums.album{search_insert}.{{ "id": albumid, "title": title, "tracks": tracks, "quality": quality, "date": date, "artist": art}}'
