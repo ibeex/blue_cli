@@ -1,3 +1,4 @@
+import functools
 import shutil
 
 import click
@@ -37,89 +38,113 @@ class AliasedGroup(click.Group):
         return cmd.name, cmd, args
 
 
+def with_blue_service(func):
+    """Decorator to inject BlueSound service into command"""
+
+    @click.option("--host", default=HOST, help=f"BlueOS host (default: {HOST})")
+    @click.option("--port", default=PORT, type=int, help=f"BlueOS port (default: {PORT})")
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        host = kwargs.pop("host")
+        port = kwargs.pop("port")
+        blue = BlueSound(host, port)
+        return func(blue, *args, **kwargs)
+
+    return wrapper
+
+
+def with_tidal_service(func):
+    """Decorator to inject TidalService into command"""
+
+    @click.option("--host", default=HOST, help=f"BlueOS host (default: {HOST})")
+    @click.option("--port", default=PORT, type=int, help=f"BlueOS port (default: {PORT})")
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        host = kwargs.pop("host")
+        port = kwargs.pop("port")
+        tidal = TidalService(host=host, port=port)
+        return func(tidal, *args, **kwargs)
+
+    return wrapper
+
+
 @click.command(cls=AliasedGroup)
-@click.option("--host", default=HOST, help=f"BlueOS host (default: {HOST})")
-@click.option("--port", default=PORT, type=int, help=f"BlueOS port (default: {PORT})")
-@click.pass_context
-def cli(ctx, host, port):
+def cli():
     """Control BlueOS with custom commands"""
-    ctx.ensure_object(dict)
-    ctx.obj["blue"] = BlueSound(host, port)
+    pass
 
 
 @cli.command()
 @click.argument("number", default=1, type=int)
-@click.pass_context
-def random_cmd(ctx, number):
+@with_blue_service
+def random_cmd(blue: BlueSound, number):
     """Enqueue random albums"""
-    ctx.obj["blue"].enqueue_random_albums(number)
+    blue.enqueue_random_albums(number)
 
 
 @cli.command()
-@click.pass_context
-def add_list(ctx):
+@with_blue_service
+def add_list(blue: BlueSound):
     """Add albums from list"""
-    ctx.obj["blue"].add_list_to_queue()
+    blue.add_list_to_queue()
 
 
 @cli.command()
 @click.option("--all", "-a", is_flag=True, help="Clean all queue")
 @click.option("--pick", "-p", is_flag=True, help="Interactive album picker for removal")
-@click.pass_context
-def cleanup(ctx, all, pick):
+@with_blue_service
+def cleanup(blue: BlueSound, all, pick):
     """Delete songs from queue until current song"""
     if all:
-        ctx.obj["blue"].cleanup_all()
+        blue.cleanup_all()
     elif pick:
-        ctx.obj["blue"].cleanup_pick()
+        blue.cleanup_pick()
     else:
-        ctx.obj["blue"].cleanup()
+        blue.cleanup()
 
 
 @cli.command()
 @click.option("--album", "-a", is_flag=True, help="Search albums only")
-@click.pass_context
-def search_albums(ctx, album):
+@with_blue_service
+def search_albums(blue: BlueSound, album):
     """Search for music"""
     if album:
-        ctx.obj["blue"].search_albums()
+        blue.search_albums()
     else:
-        ctx.obj["blue"].search()
+        blue.search()
 
 
 @cli.group(cls=AliasedGroup)
-@click.pass_context
-def preview(ctx):
+def preview():
     """Helper for previewing while browsing"""
-    ctx.obj["online"] = TidalService(host=HOST, port=PORT)
+    pass
 
 
 @preview.command()
 @click.argument("album")
-@click.pass_context
-def tracks(ctx, album):
+@with_tidal_service
+def tracks(tidal: TidalService, album):
     """Show album tracks"""
-    tracks = ctx.obj["online"].get_album_tracks(album)
-    ctx.obj["online"].print_tracks(tracks)
+    tracks = tidal.get_album_tracks(album)
+    tidal.print_tracks(tracks)
 
 
 @preview.command()
 @click.argument("artist")
-@click.pass_context
-def album(ctx, artist):
+@with_tidal_service
+def album(tidal: TidalService, artist):
     """Show artist albums"""
-    artist_id = ctx.obj["online"].get_artistid(artist)
-    albums = ctx.obj["online"].get_albums(artist_id)
-    artist_info = ctx.obj["online"].get_artis_info(artist_id)
+    artist_id = tidal.get_artistid(artist)
+    albums = tidal.get_albums(artist_id)
+    artist_info = tidal.get_artis_info(artist_id)
     rprint(artist_info)
-    ctx.obj["online"].print_albums(albums)
+    tidal.print_albums(albums)
 
 
 @cli.group(cls=AliasedGroup)
-@click.pass_context
-def online(ctx):
+def online():
     """Helpers for online subscription"""
-    ctx.obj["online"] = TidalService(host=HOST, port=PORT)
+    pass
 
 
 @online.command()
@@ -127,55 +152,55 @@ def online(ctx):
 @click.option("--album", "-a", is_flag=True, help="Search albums only")
 @click.option("--song", "-s", is_flag=True, help="Search songs only")
 @click.option("--favorites", "-f", is_flag=True, help="Search favorite artists")
-@click.pass_context
-def search(ctx, keyword, album, song, favorites):
+@with_tidal_service
+def search(tidal: TidalService, keyword, album, song, favorites):
     """Search online"""
     if album:
-        ctx.obj["online"].cli_search_albums(keyword)
+        tidal.cli_search_albums(keyword)
     elif song:
-        ctx.obj["online"].cli_search_songs(keyword)
+        tidal.cli_search_songs(keyword)
     elif favorites:
-        ctx.obj["online"].cli_search_artist(
+        tidal.cli_search_artist(
             "",
             True,
         )
     else:
-        ctx.obj["online"].cli_search_artist(keyword)
+        tidal.cli_search_artist(keyword)
 
 
 @online.command()
 @click.argument("number", default=5, type=int)
 @click.option("--random", "-R", is_flag=True, help="Add random albums from favorites")
-@click.pass_context
-def random(ctx, number, random):
+@with_tidal_service
+def random(tidal: TidalService, number, random):
     """Add latest albums from random favorite artists"""
-    ctx.obj["online"].add_latest_albums_from_favorites(number, True, random)
+    tidal.add_latest_albums_from_favorites(number, True, random)
 
 
 @online.command()
 @click.argument("number", default=5, type=int)
 @click.option("--random", "-R", is_flag=True, help="Add random albums from favorites")
-@click.pass_context
-def latest(ctx, number, random):
+@with_tidal_service
+def latest(tidal: TidalService, number, random):
     """Add latest albums from last favorite artists"""
-    ctx.obj["online"].add_latest_albums_from_favorites(number, False, random)
+    tidal.add_latest_albums_from_favorites(number, False, random)
 
 
 @cli.command()
 @click.argument("value", type=int, required=False)
-@click.pass_context
-def volume(ctx, value):
+@with_blue_service
+def volume(blue: BlueSound, value):
     """Show/Set volume"""
-    ctx.obj["blue"].volume(value)
+    blue.volume(value)
 
 
 @cli.command()
 @click.option("--test", "-t", is_flag=True, help="Test mode: show results without adding to queue")
-@click.pass_context
-def ai(ctx, test):
+@with_blue_service
+def ai(blue: BlueSound, test):
     """Get AI recommendations based on current song and add to queue"""
     # Get current playing song
-    current_song = ctx.obj["blue"].curent_song_id()
+    current_song = blue.curent_song_id()
     artist = current_song.artist
     album = current_song.album
 
@@ -189,13 +214,13 @@ def ai(ctx, test):
 
 @cli.command()
 @click.option("--album", "-a", is_flag=True, help="Skip to next album")
-@click.pass_context
-def next(ctx, album):
+@with_blue_service
+def next(blue: BlueSound, album):
     """Skip to next track or next album"""
     if album:
-        ctx.obj["blue"].next_album()
+        blue.next_album()
     else:
-        ctx.obj["blue"].next_song()
+        blue.next_song()
 
 
 SIMPLE_COMMANDS = {
@@ -222,9 +247,9 @@ def register_simple_commands(cli: click.Group) -> None:
     """Register all simple commands to the CLI group."""
 
     def create_command(func_name):
-        @click.pass_context
-        def command(ctx):
-            getattr(ctx.obj["blue"], func_name)()
+        @with_blue_service
+        def command(blue: BlueSound):
+            getattr(blue, func_name)()
 
         return command
 
