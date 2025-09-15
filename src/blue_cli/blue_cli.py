@@ -170,7 +170,7 @@ def search(tidal: TidalService, keyword, album, song, favorites):
 
 @online.command()
 @click.argument("number", default=5, type=int)
-@click.option("--random", "-R", is_flag=True, help="Add random albums from favorites")
+@click.option("--random", "-R", is_flag=True, help="Randomize album selection")
 @with_tidal_service
 def random(tidal: TidalService, number, random):
     """Add latest albums from random favorite artists"""
@@ -179,7 +179,7 @@ def random(tidal: TidalService, number, random):
 
 @online.command()
 @click.argument("number", default=5, type=int)
-@click.option("--random", "-R", is_flag=True, help="Add random albums from favorites")
+@click.option("--random", "-R", is_flag=True, help="Randomize album selection")
 @with_tidal_service
 def latest(tidal: TidalService, number, random):
     """Add latest albums from last favorite artists"""
