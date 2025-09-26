@@ -1,22 +1,140 @@
 # blue_cli
 
-👉\[\[\[**This is the initial readme for your
-[simple-modern-uv](https://github.com/jlevy/simple-modern-uv) template.** Fill it in and
-delete this message!
-Below are general setup instructions that you may remove or keep and adapt for your
-project.\]\]\]
+A command-line interface for controlling BlueOS music players, supporting local USB music libraries, Tidal streaming, and AI-powered music recommendations.
 
-* * *
+## Features
 
-## Project Docs
+- **Local Music Control**: Browse and play music from USB-connected libraries
+- **Tidal Integration**: Stream music directly from Tidal
+- **AI Recommendations**: Get personalized music suggestions powered by OpenAI
+- **Interactive Selection**: Use fzf for intuitive music browsing
+- **Command Aliases**: Supports partial command matching (e.g., `blue ran` for `blue random`)
+- **Volume Control**: Gradual volume changes to prevent audio shock
+- **Playlist Management**: Create and manage playlists
+- **Extensive Caching**: 24-hour cache for improved performance
 
-For how to install uv and Python, see [installation.md](installation.md).
+## Requirements
 
-For development workflows, see [development.md](development.md).
+- Python 3.12+
+- `fzf` command-line tool (required for interactive selection)
+- BlueOS-compatible music player
+- OpenAI API key (for AI recommendations)
 
-For instructions on publishing to PyPI, see [publishing.md](publishing.md).
+## Installation
 
-* * *
+### Development Setup
 
-*This project was built from
-[simple-modern-uv](https://github.com/jlevy/simple-modern-uv).*
+```bash
+# Clone the repository
+git clone <repository-url>
+cd blue_cli
+
+# Install dependencies
+just install
+# or
+uv sync --all-extras
+
+# Run the CLI
+uv run blue_cli --help
+```
+
+### Production Install
+
+```bash
+# Install from source
+uv pip install .
+
+# Or install in development mode
+uv pip install -e .
+```
+
+## Configuration
+
+The CLI uses these default settings:
+- **BlueOS Host**: `192.168.88.15:11000`
+- **Cache Directory**: `~/.cache/blue/`
+
+### OpenAI API Key
+
+Set your OpenAI API key using either:
+
+1. Environment variable:
+   ```bash
+   export OPENAI_API_KEY="your-api-key"
+   ```
+
+2. LLM keys file at `~/Library/Application Support/io.datasette.llm/keys.json`:
+   ```json
+   {
+     "openai": "your-api-key"
+   }
+   ```
+
+## Usage
+
+### Basic Commands
+
+```bash
+# Browse and play local music
+blue_cli usb
+
+# Search Tidal
+blue_cli tidal
+
+# Get AI music recommendations
+blue_cli ai "relaxing jazz for studying"
+
+# Control playback
+blue_cli play
+blue_cli pause
+blue_cli next
+blue_cli previous
+
+# Volume control
+blue_cli volume 50
+blue_cli volume +10
+blue_cli volume -5
+```
+
+### Command Aliases
+
+The CLI supports partial command matching:
+```bash
+blue ran    # same as: blue random
+blue vol    # same as: blue volume
+blue ti     # same as: blue tidal
+```
+
+## Development
+
+### Development Commands
+
+```bash
+# Install dependencies
+just install
+
+# Run all checks (install, lint, test)
+just
+
+# Run linting only
+just lint
+
+# Run tests
+just test
+
+# Build package
+just build
+```
+
+### Architecture
+
+- **Service Layer**: Modular services for USB, Tidal, AI, and playlist management
+- **Base Client**: Common HTTP client for BlueOS XML API communication
+- **Caching**: Aggressive caching using diskcache for performance
+- **Interactive UI**: fzf integration for music selection
+
+See [CLAUDE.md](CLAUDE.md) for detailed architecture documentation.
+
+## License
+
+MIT
