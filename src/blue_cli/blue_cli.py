@@ -169,6 +169,14 @@ def search(tidal: TidalService, keyword, album, song, favorites):
 
 
 @online.command()
+@click.argument("artist", required=False)
+@with_tidal_service
+def favorite(tidal: TidalService, artist):
+    """Search for artists and add selected one to favorites"""
+    tidal.cli_favorite_artist(artist)
+
+
+@online.command()
 @click.argument("number", default=5, type=int)
 @click.option("--random", "-R", is_flag=True, help="Randomize album selection")
 @with_tidal_service

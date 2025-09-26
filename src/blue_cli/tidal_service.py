@@ -384,3 +384,72 @@ class TidalService(BluesoundBaseClient):
         )
         for album in added_albums:
             rprint(f"- {album}")
+
+    def add_artist_to_favorites(self, artist_id: str):
+        """Add an artist to TIDAL favorites"""
+        url = f"AddFavourite?service=Tidal&artistid={artist_id}"
+        self._make_request(url)
+
+    def remove_artist_from_favorites(self, artist_id: str):
+        """Remove an artist from TIDAL favorites"""
+        url = f"DeleteFavourite?service=Tidal&artistid={artist_id}"
+        self._make_request(url)
+
+    def select_artist_for_favorites(self, artists: list[Any]):
+        """Select an artist using fzf with preview of artist info and albums"""
+        fzf = FzfPrompt("fzf --tmux 90%,80% --preview 'b pr album {}'")
+        try:
+            artist_name = fzf.prompt([x["name"] for x in artists])[0]
+        except IndexError:
+            rprint("No artist found or selected.")
+            exit(1)
+
+        # Find the selected artist
+        selected_artist = next((x for x in artists if x["name"] == artist_name), None)
+        if not selected_artist:
+            rprint("Could not find matching artist.")
+            exit(1)
+
+        return selected_artist
+
+    def cli_favorite_artist(self, artist: str):
+        """Search for artists and add selected one to favorites"""
+        if not artist:
+            artist = console.input("Artist: ")
+
+        _artists = self.search_artists(artist)
+        if not _artists:
+            rprint("No artists found.")
+            return
+
+        selected_artist = self.select_artist_for_favorites(_artists)
+
+        # Show artist info and albums before adding to favorites
+        artist_id = selected_artist["id"]
+        artist_name = selected_artist["name"]
+
+        rprint(f"[bold blue]Artist:[/bold blue] {artist_name}")
+
+        # Show artist info
+        try:
+            artist_info = self.get_artis_info(artist_id)
+            rprint(artist_info)
+        except Exception:
+            rprint("Could not fetch artist info.")
+
+        # Show albums
+        try:
+            albums = self.get_albums(artist_id)
+            rprint(f"[bold green]Albums ({len(albums)}):[/bold green]")
+            self.print_albums(albums[:10])  # Show first 10 albums
+            if len(albums) > 10:
+                rprint(f"... and {len(albums) - 10} more albums")
+        except Exception:
+            rprint("Could not fetch albums.")
+
+        # Add to favorites
+        try:
+            self.add_artist_to_favorites(artist_id)
+            rprint(f"[bold green]✓ Successfully added '{artist_name}' to favorites![/bold green]")
+        except Exception as e:
+            rprint(f"[red]✗ Failed to add artist to favorites: {e}[/red]")
