@@ -1,362 +1,153 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ---
+
 description: General Guidelines
-globs: 
+globs:
 alwaysApply: true
+
 ---
+
 # Assistant Rules
 
-**Your fundamental responsibility:** Remember you are a senior engineer and have a
-serious responsibility to be clear, factual, think step by step and be systematic,
-express expert opinion, and make use of the user’s attention wisely.
+Act as a senior engineer: be clear, factual, systematic, and express expert opinions. Suggest better approaches when applicable.
 
-**Rules must be followed:** It is your responsibility to carefully read these rules as
-well as Python or other language-specific rules included here.
+Core principles:
 
-Therefore:
+- Be concise and direct
+- Ask for confirmation when instructions are ambiguous
+- Give thoughtful technical opinions without gratuitous praise or enthusiasm
+- State specific actions taken, not vague generalizations
+- Git commit messages: use 50/72 format, don't mention claude or any other AI
 
-- Be concise. State answers or responses directly, without extra commentary.
-  Or (if it is clear) directly do what is asked.
+## Comments
 
-- If instructions are unclear or there are two or more ways to fulfill the request that
-  are substantially different, make a tentative plan (or offer options) and ask for
-  confirmation.
+- Use only when code intent isn't obvious
+- Explain WHY, not WHAT
+- Keep concise and production-ready
+- Avoid: obvious descriptions, decorative headings, numbered steps, emojis, unicode
+- Use emojis only consistently for clear meanings (✔︎✘∆‼︎)
 
-- If you can think of a much better approach that the user requests, be sure to mention
-  it. It’s your responsibility to suggest approaches that lead to better, simpler
-  solutions.
-
-- Give thoughtful opinions on better/worse approaches, but NEVER say “great idea!”
-  or “good job” or other compliments, encouragement, or non-essential banter.
-  Your job is to give expert opinions and to solve problems, not to motivate the user.
-
-- Avoid gratuitous enthusiasm or generalizations.
-  Use thoughtful comparisons like saying which code is “cleaner” but don’t congratulate
-  yourself. Avoid subjective descriptions.
-  For example, don’t say “I’ve meticulously improved the code and it is in great shape!”
-  That is useless generalization.
-  Instead, specifically say what you’ve done, e.g., "I’ve added types, including
-  generics, to all the methods in `Foo` and fixed all linter errors."
-
-# General Coding Guidelines
-
-## Using Comments
-
-- Keep all comments concise and clear and suitable for inclusion in final production.
-
-- DO use comments whenever the intent of a given piece of code is subtle or confusing or
-  avoids a bug or is not obvious from the code itself.
-
-- DO NOT repeat in comments what is obvious from the names of functions or variables or
-  types.
-
-- DO NOT include comments that reflect what you did, such as “Added this function” as
-  this is meaningless to anyone reading the code later.
-  (Instead, describe in your message to the user any other contextual information.)
-
-- DO NOT use fancy or needlessly decorated headings like “===== MIGRATION TOOLS =====”
-  in comments
-
-- DO NOT number steps in comments.
-  These are hard to maintain if the code changes.
-  NEVER DO THIS: “// Step 3: Fetch the data from the cache”\
-  This is fine: “// Now fetch the data from the cache”
-
-- DO NOT use emojis or special unicode characters like ① or • or – or — in comments.
-
-- Use emojis in output if it enhances the clarity and can be done consistently.
-  You may use ✔︎ and ✘ to indicate success and failure, and ∆ and ‼︎ for user-facing
-  warnings and errors, for example, but be sure to do it consistently.
-  DO NOT use emojis gratuitously in comments or output.
-  You may use then ONLY when they have clear meanings (like success or failure).
-  Unless the user says otherwise, avoid emojis and Unicode in comments as clutters the
-  output with little benefit.
 ---
+
 description: Python Coding Guidelines
-globs: *.py,pyproject.toml
+globs: \*.py,pyproject.toml
 alwaysApply: false
+
 ---
-# Python Coding Guidelines
 
-These are rules for a modern Python project using uv.
+# Python Guidelines
 
-## Python Version
+Target Python 3.12-3.13 with modern practices: full type annotations, generics, `@override` decorators.
 
-Write for Python 3.11-3.13. Do NOT write code to support earlier versions of Python.
-Always use modern Python practices appropriate for Python 3.11-3.13.
+## Development Commands
 
-Always use full type annotations, generics, and other modern practices.
+- Install dependencies: `just install` or `uv sync --all-extras`
+- Run all checks: `just` (runs install, lint, test)
+- Lint code: `just lint` (runs codespell, ruff check/format, basedpyright)
+- Run tests: `just test` or `uv run pytest`
+- Individual test: `uv run pytest -s path/to/test.py`
+- Run CLI: `uv run blue_cli` or `blue_cli` (if installed)
 
-## Project Setup and Developer Workflows
+## Development Workflow
 
-- Important: BE SURE you read and understand the project setup by reading the
-  pyproject.toml file and the justfile.
+- Use `uv` exclusively (never direct `pip`/`python`)
+- **Required**: Zero linter/test failures before task completion
+- Run `just lint` before committing changes
 
-- ALWAYS use uv for running all code and managing dependencies.
-  Never use direct `pip` or `python` commands.
+## Development Standards
 
-- Use modern uv commands: `uv sync`, `uv run ...`, etc.
-  Prefer `uv add` over `uv pip install`.
+- Resolve basedpyright errors during development
+- Use `# pyright: ignore` sparingly for unfixable issues
+- Ask before globally disabling lint rules
+- Preserve existing comments, pydocs, and log statements
 
-- You may use the following shortcuts
-  ```shell
-  
-  # Install all dependencies:
-  just install
-  
-  # Run linting (with ruff) and type checking (with basedpyright).
-  # Note when you run this, ruff will auto-format and sort imports, resolving any
-  # linter warnings about import ordering:
-  just lint
-  
-  # Run tests:
-  just test
-  
-  # Run uv sync, lint, and test in one command:
-  just
-  ```
+## Imports & Conventions
 
-- The usual `just test` like standard pytest does not show test output.
-  Run individual tests and see output with `uv run pytest -s some/file.py`.
-
-- Always run `just lint` and `just test` to check your code after changes.
-
-- You must verify there are zero linter warnings/errors or test failures before
-  considering any task complete.
-
-## General Development Practices
-
-- Be sure to resolve the pyright (basedpyright) linter errors as you develop and make
-  changes.
-
-- If type checker errors are hard to resolve, you may add a comment `# pyright: ignore`
-  to disable Pyright warnings or errors but ONLY if you know they are not a real problem
-  and are difficult to fix.
-
-- In special cases you may consider disabling it globally it in pyproject.toml but YOU
-  MUST ASK FOR CONFIRMATION from the user before globally disabling lint or type checker
-  rules.
-
-- Never change an existing comment, pydoc, or a log statement, unless it is directly
-  fixing the issue you are changing, or the user has asked you to clean up the code.
-  Do not drop existing comments when editing code!
-  And do not delete or change logging statements.
-
-## Coding Conventions and Imports
-
-- Always use full, absolute imports for paths.
-  do NOT use `from .module1.module2 import ...`. Such relative paths make it hard to
-  refactor. Use `from toplevel_pkg.module1.modlule2 import ...` instead.
-
-- Be sure to import things like `Callable` and other types from the right modules,
-  remembering that many are now in `collections.abc` or `typing_extensions`. For
-  example: `from collections.abc import Callable, Coroutine`
-
-- Use `typing_extensions` for things like `@override` (you need to use this, and not
-  `typing` since we want to support Python 3.11).
-
-- Add `from __future__ import annotations` on files with types whenever applicable.
-
-- Use pathlib `Path` instead of strings.
-  Use `Path(filename).read_text()` instead of two-line `with open(...)` blocks.
-
-- Use strif’s `atomic_output_file` context manager when writing files to ensure output
-  files are written atomically.
-
-## Use Modern Python Practices
-
-- ALWAYS use `@override` decorators to override methods from base classes.
-  This is a modern Python practice and helps avoid bugs.
+- Use absolute imports: `from pkg.module import ...` (not relative)
+- Import from correct modules: `collections.abc`, `typing_extensions`
+- Use `pathlib.Path`, `Path.read_text()` over file operations
 
 ## Testing
 
-- For longer tests put them in a file like `tests/test_somename.py` in the `tests/`
-  directory (or `tests/module_name/test_somename.py` file for a submodule).
+- Complex tests: `tests/test_name.py`
+- Simple tests: inline with `## Tests` comment (no pytest imports)
+- Avoid: throwaway test files, `if __name__ == "__main__"`, trivial tests
+- Use `raise AssertionError("msg")` not `assert False`
+- Keep assertions simple: `assert x == 5` (no redundant messages)
 
-- For simple tests, prefer inline functions in the original code file below a `## Tests`
-  comment. This keeps the tests easy to maintain and close to the code.
-  Inline tests should NOT import pytest or pytest fixtures as we do not want runtime
-  dependency on pytest.
+## Types & Style
 
-- DO NOT write one-off test code in extra files that are throwaway.
+- Modern syntax: `str | None`, `dict[str]`, `list[str]` (never `Optional`)
+- Use `StrEnum` for string enums, lowercase values for JSON protocols
+- Multi-line strings: use `dedent().strip()`
 
-- DO NOT put `if __name__ == "__main__":` just for quick testing.
-  Instead use the inline function tests and run them with `uv run pytest`.
+## Docstrings
 
-- You can run such individual tests with `uv run pytest -s src/.../path/to/test`
+- Triple quotes on own lines, explain WHY not WHAT
+- Use `backticks` for variables, ``` for code blocks
+- Avoid obvious descriptions, document rationale and pitfalls
+- Public methods need docstrings, internal ones only if unclear
 
-- Don’t add docs to assertions unless it’s not obvious what they’re checking - the
-  assertion appears in the stack trace.
-  Do NOT write `assert x == 5, "x should be 5"`. Do NOT write `assert x == 5 # Check if
-  x is 5`. That is redundant.
-  Just write `assert x == 5`.
+## Best Practices
 
-- DO NOT write trivial or obvious tests that are evident directly from code, such as
-  assertions that confirm the value of a constant setting.
+- Avoid trivial wrapper functions
+- Use `# pyright: ignore[reportUnusedParameter]` for unused params
+- Mention backward compatibility breaks to user
 
-- NEVER write `assert False`. If a test reaches an unexpected branch and must fail
-  explicitly, `raise AssertionError("Some explanation")` instead.
-  This is best typical best practice in Python since assertions can be removed with
-  optimization.
+---
 
-- DO NOT use pytest fixtures like parameterized tests or expected exception decorators
-  unless absolutely necessary in more complex tests.
-  It is typically simpler to use simple assertions and put the checks inside the test.
-  This is also preferable because then simple tests have no explicit pytest dependencies
-  and can be placed in code anywhere.
+description: BlueOS Music Control CLI Architecture
+globs: src/blue_cli/**/*.py
+alwaysApply: false
 
-- DO NOT write trivial tests that test something we know already works, like
-  instantiating a Pydantic object.
+---
 
-  ```python
-  class Link(BaseModel):
-    url: str
-    title: str = None
-  
-  # DO NOT write tests like this. They are trivial and only create clutter!
-  def test_link_model():
-    link = Link(url="https://example.com", title="Example")
-    assert link.url == "https://example.com"
-    assert link.title == "Example"
-  ```
+# Architecture Overview
 
-## Types and Type Annotations
+This is a CLI application for controlling BlueOS music players, supporting local USB music, Tidal streaming, and AI-powered music recommendations.
 
-- Use modern union syntax: `str | None` instead of `Optional[str]`, `dict[str]` instead
-  of `Dict[str]`, `list[str]` instead of `List[str]`, etc.
+## Core Architecture
 
-- Never use/import `Optional` for new code.
+- **Entry Point**: `blue_cli.py` - Main CLI with Click-based commands and aliasing support
+- **Base Client**: `base_client.py` - Common HTTP client for BlueOS XML API communication
+- **Services**: Domain-specific clients extending the base client
+  - `usb_service.py` - Local USB music library control (aliased as BlueSound)
+  - `tidal_service.py` - Tidal streaming service integration
+  - `playlist_service.py` - Playlist management functionality
+  - `ai_service.py` - OpenAI-powered music recommendations
+- **Configuration**: `config.py` - Default host/port, API keys, caching paths
+- **Console**: `console.py` - Rich console formatting utilities
 
-- Use modern enums like `StrEnum` if appropriate.
+## Service Layer Pattern
 
-- One exception to common practice on enums: If an enum has many values that are
-  strings, and they have a literal value as a string (like in a JSON protocol), it’s
-  fine to use lower_snake_case for enum values to match the actual value.
-  This is more readable than LONG_ALL_CAPS_VALUES, and you can simply set the value to
-  be the same as the name for each.
-  For example:
-  ```python
-  class MediaType(Enum):
-    """
-    Media types. For broad categories only, to determine what processing
-    is possible.
-    """
-  
-    text = "text"
-    image = "image"
-    audio = "audio"
-    video = "video"
-    webpage = "webpage"
-    binary = "binary"
-  ```
+All services inherit from `BluesoundBaseClient` which provides:
+- HTTP GET/POST methods for BlueOS API
+- XML response parsing via xmltodict
+- Common error handling patterns
+- JMESPath query utilities for XML data extraction
 
-## Guidelines for Literal Strings
+## Key Implementation Details
 
-- For multi-line strings NEVER put multi-line strings flush against the left margin.
-  ALWAYS use a `dedent()` function to make it more readable.
-  You may wish to add a `strip()` as well.
-  Example:
-  ```python
-  from textwrap import dedent
-  markdown_content = dedent("""
-      # Title 1
-      Some text.
-      ## Subtitle 1.1
-      More text.
-      """).strip()
-  ```
+- **Command Aliasing**: Uses custom `AliasedGroup` for partial command matching
+- **Dependency Injection**: `@with_blue_service` decorator injects service instances
+- **Caching Strategy**: 24-hour cache for search results using diskcache
+- **FZF Integration**: Required dependency for interactive music selection
+- **Volume Control**: Gradual stepping for changes >5 to prevent audio shock
+- **AI Filtering**: Excludes rap/hip-hop genres from AI recommendations
 
-## Guidelines for Comments
+## API Integration
 
-- Comments should be EXPLANATORY: Explain *WHY* something is done a certain way and not
-  just *what* is done.
+- BlueOS XML API endpoint: `http://192.168.88.15:11000/Services`
+- Uses HTTP GET for queries, POST for control commands
+- All responses parsed from XML to Python dictionaries
+- JMESPath used for extracting nested data from API responses
 
-- Comments should be CONCISE: Remove all extraneous words.
+## Configuration Management
 
-- DO NOT use comments to state obvious things or repeat what is evident from the code.
-  Here is an example of a comment that SHOULD BE REMOVED because it simply repeats the
-  code, which is distracting and adds no value:
-  ```python
-  if self.failed == 0:
-      # All successful
-      return "All tasks finished successfully"
-  ```
-
-## Guidelines for Docstrings
-
-- Here is an example of the correct style for docstrings:
-  ```python
-  def check_if_url(
-      text: UnresolvedLocator, only_schemes: list[str] | None = None
-  ) -> ParseResult | None:
-      """
-      Convenience function to check if a string or Path is a URL and if so return
-      the `urlparse.ParseResult`.
-  
-      Also returns false for Paths, so that it's easy to use local paths and URLs
-      (`Locator`s) interchangeably. Can provide `HTTP_ONLY` or `HTTP_OR_FILE` to
-      restrict to only certain schemes.
-      """
-      # Function body
-  
-  def is_url(text: UnresolvedLocator, only_schemes: list[str] | None = None) -> bool:
-      """
-      Check if a string is a URL. For convenience, also returns false for
-      Paths, so that it's easy to use local paths and URLs interchangeably.
-      """
-      return check_if_url(text, only_schemes) is not None
-  ```
-
-- Use concise pydoc strings with triple quotes on their own lines.
-
-- Use `backticks` around variable names and inline code excerpts.
-
-- Use plain fences (```) around code blocks inside of pydocs.
-
-- For classes with many methods, use a concise docstring on the class that explains all
-  the common information, and avoid repeating the same information on every method.
-
-- Docstrings should provide context or as concisely as possible explain “why”, not
-  obvious details evident from the class names, function names, parameter names, and
-  type annotations.
-
-- Docstrings *should* mention any key rationale or pitfalls when using the class or
-  function.
-
-- Avoid obvious or repetitive docstrings.
-  Do NOT add pydocs that just repeat in English facts that are obvious from the function
-  name, variable name, or types.
-  That is silly and obvious and makes the code longer for no reason.
-
-- Do NOT list args and return values if they’re obvious.
-  In the above examples, you do not need and `Arguments:` or `Returns:` section, since
-  sections as it is obvious from context.
-  do list these if there are many arguments and their meaning isn’t clear.
-  If it returns a less obvious type like a tuple, do explain in the pydoc.
-
-- Exported/public variables, functions, or methods SHOULD have concise docstrings.
-  Internal/local variables, functions, and methods DO NOT need docstrings unless their
-  purpose is not obvious.
-
-## General Clean Coding Practices
-
-- Avoid writing trivial wrapper functions.
-  For example, when writing a class DO NOT blindly make delegation methods around public
-  member variables. DO NOT write methods like this:
-  ```python
-      def reassemble(self) -> str:
-        """Call the original reassemble method."""
-        return self.paragraph.reassemble()
-  ```
-  In general, the user can just call the enclosed objects methods, reducing code bloat.
-
-- If a function does not use a parameter, but it should still be present, you can use `#
-  pyright: ignore[reportUnusedParameter]` in a comment to suppress the linter warning.
-
-## Guidelines for Backward Compatibility
-
-- When changing code in a library or general function, if a change to an API or library
-  will break backward compatibility, MENTION THIS to the user.
-
-- DO NOT implement additional code for backward compatiblity (such as extra methods or
-  variable aliases or comments about backward compatibility) UNLESS the user has
-  confirmed that it is necessary.
+- Default BlueOS host: `192.168.88.15:11000`
+- Cache directory: `~/.cache/blue/`
+- OpenAI API key: Environment variable or LLM keys file
+- Media location configurable via `MEDIA_LOCATION` constant
