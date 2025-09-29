@@ -9,7 +9,7 @@ from typing import Protocol
 
 import openai
 
-from .config import AI_MODEL, HOST, PORT, get_openai_key
+from .config import HOST, PORT, get_ai_model, get_base_url, get_openai_key
 from .console import console
 from .tidal_service import TidalService
 
@@ -72,8 +72,8 @@ class AIServiceConfig:
     max_completion_tokens: int = 8000
     recommendation_count: int = 5
     error_key_message: str = (
-        "OpenAI API key not found. Please set OPENAI_API_KEY environment variable "
-        "or add to ~/Library/Application Support/io.datasette.llm/keys.json"
+        "API key not found. Please set OPENAI_API_KEY environment variable "
+        "or add 'api_key' to ~/.config/blue_cli/keys.json (supports OpenAI and OpenRouter APIs)"
     )
 
 
@@ -240,7 +240,12 @@ class AIClient:
             api_key = get_openai_key()
             if not api_key:
                 raise AIServiceError(self.config.error_key_message)
-            self._client = openai.OpenAI(api_key=api_key)
+
+            base_url = get_base_url()
+            if base_url:
+                self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+            else:
+                self._client = openai.OpenAI(api_key=api_key)
         return self._client
 
     def make_request(self, prompt: str, response_type: ResponseType) -> AIResponse:
@@ -248,7 +253,7 @@ class AIClient:
         try:
             client = self._get_client()
             response = client.chat.completions.create(
-                model=AI_MODEL,
+                model=get_ai_model(),
                 messages=[{"role": "user", "content": prompt}],
                 max_completion_tokens=self.config.max_completion_tokens,
                 reasoning_effort="minimal",
@@ -513,9 +518,13 @@ class AIRecommendationService:
         """Handle AI service errors with user-friendly messages."""
         rprint(f"[red]Error:[/] {error_message}")
         if error_message and "API key not found" in error_message:
-            rprint("Please set your OpenAI API key:")
+            rprint("Please set your API key (OpenAI or OpenRouter):")
             rprint("  - Environment: export OPENAI_API_KEY=your_key_here")
-            rprint("  - Or add to: ~/Library/Application Support/io.datasette.llm/keys.json")
+            rprint("  - Or add to ~/.config/blue_cli/keys.json:")
+            rprint(
+                '    {"api_key": "your-key", "base_url": "https://openrouter.ai/api/v1", "model": "anthropic/claude-3.5-sonnet"}'
+            )
+            rprint("  - For OpenAI: omit base_url or use https://api.openai.com/v1")
 
     def _search_and_add_album(self, recommendation: Recommendation) -> bool:
         """Search for an album and add it to the queue."""

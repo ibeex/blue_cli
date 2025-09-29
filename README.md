@@ -6,7 +6,7 @@ A command-line interface for controlling BlueOS music players, supporting local 
 
 - **Local Music Control**: Browse and play music from USB-connected libraries
 - **Tidal Integration**: Stream music directly from Tidal
-- **AI Recommendations**: Get personalized music suggestions powered by OpenAI
+- **AI Recommendations**: Get personalized music suggestions powered by OpenAI or OpenRouter
 - **Interactive Selection**: Use fzf for intuitive music browsing
 - **Command Aliases**: Supports partial command matching (e.g., `blue ran` for `blue random`)
 - **Volume Control**: Gradual volume changes to prevent audio shock
@@ -18,7 +18,7 @@ A command-line interface for controlling BlueOS music players, supporting local 
 - Python 3.12+
 - `fzf` command-line tool (required for interactive selection)
 - BlueOS-compatible music player
-- OpenAI API key (for AI recommendations)
+- OpenAI or OpenRouter API key (for AI recommendations)
 
 ## Installation
 
@@ -53,22 +53,40 @@ uv pip install -e .
 The CLI uses these default settings:
 - **BlueOS Host**: `192.168.88.15:11000`
 - **Cache Directory**: `~/.cache/blue/`
+- **Config Directory**: `~/.config/blue_cli/`
 
-### OpenAI API Key
+### API Configuration
 
-Set your OpenAI API key using either:
+Configure your AI provider using either:
 
-1. Environment variable:
+1. **Environment variable**:
    ```bash
    export OPENAI_API_KEY="your-api-key"
    ```
 
-2. LLM keys file at `~/Library/Application Support/io.datasette.llm/keys.json`:
+2. **Configuration file** at `~/.config/blue_cli/keys.json`:
+
+   **For OpenAI:**
    ```json
    {
-     "openai": "your-api-key"
+     "api_key": "sk-your-openai-key",
+     "model": "gpt-4o"
    }
    ```
+
+   **For OpenRouter:**
+   ```json
+   {
+     "api_key": "sk-or-v1-your-openrouter-key",
+     "base_url": "https://openrouter.ai/api/v1",
+     "model": "anthropic/claude-3.5-sonnet"
+   }
+   ```
+
+   **Configuration Options:**
+   - `api_key`: Your API key (required)
+   - `model`: AI model to use (optional, defaults to `gpt-5`)
+   - `base_url`: API endpoint URL (optional, defaults to OpenAI)
 
 ## Usage
 
