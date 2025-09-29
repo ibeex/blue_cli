@@ -55,6 +55,23 @@ The CLI uses these default settings:
 - **Cache Directory**: `~/.cache/blue/`
 - **Config Directory**: `~/.config/blue_cli/`
 
+### BlueOS Server Configuration
+
+You can configure the BlueOS host and port by creating a configuration file at `~/.config/blue_cli/keys.json`:
+
+```json
+{
+  "host": "192.168.1.100",
+  "port": 11000
+}
+```
+
+**Configuration Options:**
+- `host`: BlueOS server IP address (optional, defaults to `192.168.88.15`)
+- `port`: BlueOS server port (optional, defaults to `11000`)
+
+If no configuration file exists or these keys are missing, the CLI will use the default values.
+
 ### API Configuration
 
 Configure your AI provider using either:
@@ -69,6 +86,8 @@ Configure your AI provider using either:
    **For OpenAI:**
    ```json
    {
+     "host": "192.168.1.100",
+     "port": 11000,
      "api_key": "sk-your-openai-key",
      "model": "gpt-4o"
    }
@@ -77,6 +96,8 @@ Configure your AI provider using either:
    **For OpenRouter:**
    ```json
    {
+     "host": "192.168.1.100",
+     "port": 11000,
      "api_key": "sk-or-v1-your-openrouter-key",
      "base_url": "https://openrouter.ai/api/v1",
      "model": "anthropic/claude-3.5-sonnet"
@@ -84,7 +105,9 @@ Configure your AI provider using either:
    ```
 
    **Configuration Options:**
-   - `api_key`: Your API key (required)
+   - `host`: BlueOS server IP address (optional, defaults to `192.168.88.15`)
+   - `port`: BlueOS server port (optional, defaults to `11000`)
+   - `api_key`: Your API key (required for AI features)
    - `model`: AI model to use (optional, defaults to `gpt-5`)
    - `base_url`: API endpoint URL (optional, defaults to OpenAI)
 

@@ -4,7 +4,7 @@ import shutil
 import click
 
 from .ai_service import AIRecommendationService
-from .config import HOST, PORT
+from .config import get_host, get_port
 from .console import console
 from .tidal_service import TidalService
 from .usb_service import UsbService as BlueSound
@@ -41,8 +41,10 @@ class AliasedGroup(click.Group):
 def with_blue_service(func):
     """Decorator to inject BlueSound service into command"""
 
-    @click.option("--host", default=HOST, help=f"BlueOS host (default: {HOST})")
-    @click.option("--port", default=PORT, type=int, help=f"BlueOS port (default: {PORT})")
+    @click.option("--host", default=get_host(), help=f"BlueOS host (default: {get_host()})")
+    @click.option(
+        "--port", default=get_port(), type=int, help=f"BlueOS port (default: {get_port()})"
+    )
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         host = kwargs.pop("host")
@@ -56,8 +58,10 @@ def with_blue_service(func):
 def with_tidal_service(func):
     """Decorator to inject TidalService into command"""
 
-    @click.option("--host", default=HOST, help=f"BlueOS host (default: {HOST})")
-    @click.option("--port", default=PORT, type=int, help=f"BlueOS port (default: {PORT})")
+    @click.option("--host", default=get_host(), help=f"BlueOS host (default: {get_host()})")
+    @click.option(
+        "--port", default=get_port(), type=int, help=f"BlueOS port (default: {get_port()})"
+    )
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         host = kwargs.pop("host")
@@ -208,7 +212,7 @@ def volume(blue: BlueSound, value):
 @with_blue_service
 def ai(blue: BlueSound, prompt, test):
     """Get AI recommendations based on current song or custom prompt and add to queue"""
-    ai_service = AIRecommendationService(host=HOST, port=PORT)
+    ai_service = AIRecommendationService(host=get_host(), port=get_port())
 
     if prompt:
         # Use custom prompt for recommendations

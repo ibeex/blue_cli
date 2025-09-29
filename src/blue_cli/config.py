@@ -57,3 +57,15 @@ def get_base_url() -> str | None:
     """Get OpenAI compatible base URL from config file (e.g., for OpenRouter)."""
     keys_data = _load_keys_config()
     return keys_data.get("base_url")
+
+
+def get_host() -> str:
+    """Get BlueOS host from config file or default to HOST constant."""
+    keys_data = _load_keys_config()
+    return keys_data.get("host", HOST)
+
+
+def get_port() -> int:
+    """Get BlueOS port from config file or default to PORT constant."""
+    keys_data = _load_keys_config()
+    return keys_data.get("port", PORT)

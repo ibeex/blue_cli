@@ -9,7 +9,7 @@ from typing import Protocol
 
 import openai
 
-from .config import HOST, PORT, get_ai_model, get_base_url, get_openai_key
+from .config import get_ai_model, get_base_url, get_host, get_openai_key, get_port
 from .console import console
 from .tidal_service import TidalService
 
@@ -502,10 +502,10 @@ class RecommendationDisplayService:
 class AIRecommendationService:
     """Service for getting AI-powered music recommendations based on current song."""
 
-    def __init__(self, host: str = HOST, port: int = PORT):
-        self.host = host
-        self.port = port
-        self.tidal_service = TidalService(host=host, port=port)
+    def __init__(self, host: str | None = None, port: int | None = None):
+        self.host = host or get_host()
+        self.port = port or get_port()
+        self.tidal_service = TidalService(host=self.host, port=self.port)
         self.ai_client = AIClient()
         self.search_service = AlbumSearchService(self.tidal_service)
         self.explanation_service = ExplanationService(self.ai_client)
