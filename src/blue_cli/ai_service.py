@@ -199,6 +199,20 @@ class PromptTemplates:
         """).strip()
 
     @staticmethod
+    def text_prompt_recommendation(text_prompt: str) -> str:
+        """Generate prompt for text-based music recommendations."""
+        config = AIServiceConfig()
+        return dedent(f"""
+            Can you provide a list of {config.recommendation_count} bands and albums that match this description: "{text_prompt}"
+
+            Exclude any Rap or Hip-Hop artists.
+
+            For each band, please include a notable album or release that fits the description.
+            Format your response as: Band Name - Album Name (one per line).
+            Nothing more in response, just the list of bands and albums.
+        """).strip()
+
+    @staticmethod
     def general_explanation_prompt(
         current_artist: str, current_album: str, recommendations: list[Recommendation]
     ) -> str:
@@ -514,6 +528,22 @@ class AIRecommendationService:
             rprint(f"[red]Error getting AI recommendations: {str(e)}[/]")
             return []
 
+    def _get_prompt_recommendations(self, text_prompt: str) -> list[Recommendation]:
+        """Get AI recommendations based on text prompt and parse them into structured data."""
+        try:
+            prompt = PromptTemplates.text_prompt_recommendation(text_prompt)
+            response = self.ai_client.make_request(prompt, ResponseType.RECOMMENDATION)
+
+            if not response.success:
+                self._handle_ai_error(response.error_message)
+                return []
+
+            return self.parser.parse_recommendations(response.content or "")
+
+        except AIServiceError as e:
+            rprint(f"[red]Error getting AI recommendations: {str(e)}[/]")
+            return []
+
     def _handle_ai_error(self, error_message: str | None) -> None:
         """Handle AI service errors with user-friendly messages."""
         rprint(f"[red]Error:[/] {error_message}")
@@ -575,6 +605,55 @@ class AIRecommendationService:
 
         return added_count
 
+    def get_prompt_recommendations_and_enqueue(self, text_prompt: str) -> int:
+        """
+        Get AI recommendations for the given text prompt and add albums to queue.
+
+        Args:
+            text_prompt: The user's text description for recommendations
+
+        Returns:
+            Number of albums successfully added to queue
+        """
+        rprint(f"Getting AI recommendations for: [bold blue]'{text_prompt}'[/]")
+
+        recommendations = self._get_prompt_recommendations(text_prompt)
+        if not recommendations:
+            return 0
+
+        self.display_service.display_recommendations(recommendations)
+        added_count = self._process_recommendations_for_queue(recommendations)
+
+        self.display_service.display_final_success(added_count)
+
+        if recommendations:
+            self._generate_prompt_explanation(text_prompt, recommendations)
+
+        return added_count
+
+    def get_prompt_recommendations_test_mode(self, text_prompt: str) -> None:
+        """
+        Get AI recommendations for text prompt and display search results without adding to queue.
+
+        Args:
+            text_prompt: The user's text description for recommendations
+        """
+        rprint(
+            f"[bold yellow]TEST MODE:[/] Getting AI recommendations for: [bold blue]'{text_prompt}'[/]"
+        )
+
+        recommendations = self._get_prompt_recommendations(text_prompt)
+        if not recommendations:
+            return
+
+        self.display_service.display_recommendations(recommendations)
+        found_count = self._process_recommendations_for_test(recommendations)
+
+        self.display_service.display_test_summary(found_count, len(recommendations))
+
+        if recommendations:
+            self._generate_prompt_explanation(text_prompt, recommendations)
+
     def get_recommendations_test_mode(self, current_artist: str, current_album: str) -> None:
         """
         Get AI recommendations and display search results without adding to queue.
@@ -625,6 +704,28 @@ class AIRecommendationService:
                 self.display_service.display_search_error(str(e))
 
         return found_count
+
+    def _generate_prompt_explanation(
+        self,
+        text_prompt: str,
+        recommendations: list[Recommendation],
+    ) -> None:
+        """Generate AI explanation for the prompt-based recommendations."""
+        rprint("\n[bold magenta]🤖 AI Explanation[/]")
+
+        # Create a simple explanation prompt
+        rec_list = ", ".join([f"{rec.artist} ({rec.album})" for rec in recommendations])
+        prompt = dedent(f"""
+            I asked for music recommendations with this description: "{text_prompt}"
+            And got these recommendations: {rec_list}.
+
+            Provide a brief 2-3 sentence explanation of how these recommendations match my request.
+            Focus on the musical style, mood, or characteristics that connect them to my description.
+        """).strip()
+
+        response = self.ai_client.make_request(prompt, ResponseType.GENERAL_EXPLANATION)
+        if response.success and response.content:
+            rprint(f"\n[bold cyan]Why these recommendations?[/]\n{response.content}")
 
     def _generate_explanation(
         self,

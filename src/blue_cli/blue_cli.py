@@ -203,21 +203,29 @@ def volume(blue: BlueSound, value):
 
 
 @cli.command()
+@click.argument("prompt", required=False)
 @click.option("--test", "-t", is_flag=True, help="Test mode: show results without adding to queue")
 @with_blue_service
-def ai(blue: BlueSound, test):
-    """Get AI recommendations based on current song and add to queue"""
-    # Get current playing song
-    current_song = blue.curent_song_id()
-    artist = current_song.artist
-    album = current_song.album
-
-    # Use AI service to get recommendations and enqueue albums
+def ai(blue: BlueSound, prompt, test):
+    """Get AI recommendations based on current song or custom prompt and add to queue"""
     ai_service = AIRecommendationService(host=HOST, port=PORT)
-    if test:
-        ai_service.get_recommendations_test_mode(artist, album)
+
+    if prompt:
+        # Use custom prompt for recommendations
+        if test:
+            ai_service.get_prompt_recommendations_test_mode(prompt)
+        else:
+            ai_service.get_prompt_recommendations_and_enqueue(prompt)
     else:
-        ai_service.get_recommendations_and_enqueue(artist, album)
+        # Use current playing song for recommendations
+        current_song = blue.curent_song_id()
+        artist = current_song.artist
+        album = current_song.album
+
+        if test:
+            ai_service.get_recommendations_test_mode(artist, album)
+        else:
+            ai_service.get_recommendations_and_enqueue(artist, album)
 
 
 @cli.command()
