@@ -33,7 +33,7 @@ Core principles:
 ---
 
 description: Python Coding Guidelines
-globs: \*.py,pyproject.toml
+globs: *.py,pyproject.toml
 alwaysApply: false
 
 ---
