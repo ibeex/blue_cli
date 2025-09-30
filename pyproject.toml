@@ -1,7 +1,7 @@
 # ---- Project Info and Dependencies ----
 
 [project.urls]
-Repository = "https://github.com/changeme/blue_cli"
+Repository = "https://github.com/ibeex/blue_cli"
 # Homepage = "https://..."
 # Documentation = "https://..."
 
