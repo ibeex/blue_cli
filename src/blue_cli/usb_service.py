@@ -190,7 +190,7 @@ class UsbService(BluesoundBaseClient):
         status = self.curent_song_id()
         s.stop()
         fzf = FzfPrompt(
-            f"fzf --tiebreak=index --tmux 90%,80% --prompt='{status.song_id} {status.artist}> '"
+            f'fzf --tiebreak=index --tmux 90%,80% --prompt="{status.song_id} {status.artist}> "'
         )
         try:
             song = fzf.prompt(albums)[0]
