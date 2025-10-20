@@ -453,3 +453,17 @@ class TidalService(BluesoundBaseClient):
             rprint(f"[bold green]✓ Successfully added '{artist_name}' to favorites![/bold green]")
         except Exception as e:
             rprint(f"[red]✗ Failed to add artist to favorites: {e}[/red]")
+
+    def export_favorite_artists(self):
+        """Export all favorite artists"""
+        favorite_artists = self.search_artists()
+        if not favorite_artists:
+            rprint("No favorite artists found.")
+            return
+
+        rprint(f"[bold green]Favorite Artists ({len(favorite_artists)}):[/bold green]")
+        for artist in favorite_artists:
+            rprint(f"{artist['name']}")
+        rprint(
+            f"[bold yellow]Exported {len(favorite_artists)} favorite artists to console.[/bold yellow]"
+        )

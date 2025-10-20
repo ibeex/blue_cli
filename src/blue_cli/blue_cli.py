@@ -198,6 +198,19 @@ def latest(tidal: TidalService, number, random):
     tidal.add_latest_albums_from_favorites(number, False, random)
 
 
+@online.group(cls=AliasedGroup)
+def export():
+    """Export data"""
+    pass
+
+
+@export.command()
+@with_tidal_service
+def favorites(tidal: TidalService):
+    """Export favorite artists"""
+    tidal.export_favorite_artists()
+
+
 @cli.command()
 @click.argument("value", type=int, required=False)
 @with_blue_service
