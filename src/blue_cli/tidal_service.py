@@ -464,6 +464,3 @@ class TidalService(BluesoundBaseClient):
         rprint(f"[bold green]Favorite Artists ({len(favorite_artists)}):[/bold green]")
         for artist in favorite_artists:
             rprint(f"{artist['name']}")
-        rprint(
-            f"[bold yellow]Exported {len(favorite_artists)} favorite artists to console.[/bold yellow]"
-        )
