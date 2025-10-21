@@ -42,6 +42,9 @@ class TidalService(BluesoundBaseClient):
             r = self._make_request(url)
             obj = self._parse_xml(r)
 
+            if "error" in obj or "artists" not in obj or "art" not in obj["artists"]:
+                return artists
+
             search_insert = "[]" if isinstance(obj["artists"]["art"], list) else ""
             search_string = f'artists.art{search_insert}.{{ "id": artistid, "name": "#text" }}'
 
@@ -167,6 +170,10 @@ class TidalService(BluesoundBaseClient):
         while url:
             r = self._make_request(url)
             obj = self._parse_xml(r)
+
+            if "error" in obj or "songs" not in obj or "song" not in obj["songs"]:
+                return songs
+
             search_insert = "[]" if isinstance(obj["songs"]["song"], list) else ""
 
             search_string = f'songs.song{search_insert}.{{ "id": songid, "title": title, "artist": art, "quality": quality, "time": time, "artistid": artistid}}'
