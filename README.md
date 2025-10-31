@@ -5,7 +5,7 @@ A command-line interface for controlling BlueOS music players, supporting local 
 ## Features
 
 - **Local Music Control**: Browse and play music from USB-connected libraries
-- **Tidal Integration**: Stream music directly from Tidal
+- **Online Streaming**: Stream music directly from Tidal
 - **AI Recommendations**: Get personalized music suggestions based on currently playing artist/album or custom text prompts, powered by OpenAI or OpenRouter
 - **Interactive Selection**: Use fzf for intuitive music browsing
 - **Command Aliases**: Supports partial command matching (e.g., `blue ran` for `blue random`)
@@ -119,8 +119,8 @@ Configure your AI provider using either:
 # Browse and play local music
 blue_cli usb
 
-# Search Tidal
-blue_cli tidal
+# Search Tidal online streaming
+blue_cli online
 
 # Get AI recommendations based on currently playing track
 blue_cli ai
@@ -150,7 +150,7 @@ The CLI supports partial command matching:
 ```bash
 blue ran    # same as: blue random
 blue vol    # same as: blue volume
-blue ti     # same as: blue tidal
+blue on     # same as: blue online
 ```
 
 ## Development
