@@ -33,7 +33,7 @@ Core principles:
 ---
 
 description: Python Coding Guidelines
-globs: *.py,pyproject.toml
+globs: \*.py,pyproject.toml
 alwaysApply: false
 
 ---
@@ -100,7 +100,7 @@ Target Python 3.12-3.13 with modern practices: full type annotations, generics, 
 ---
 
 description: BlueOS Music Control CLI Architecture
-globs: src/blue_cli/**/*.py
+globs: src/blue*cli/\**/\_.py
 alwaysApply: false
 
 ---
@@ -124,6 +124,7 @@ This is a CLI application for controlling BlueOS music players, supporting local
 ## Service Layer Pattern
 
 All services inherit from `BluesoundBaseClient` which provides:
+
 - HTTP GET/POST methods for BlueOS API
 - XML response parsing via xmltodict
 - Common error handling patterns
@@ -140,10 +141,13 @@ All services inherit from `BluesoundBaseClient` which provides:
 
 ## API Integration
 
-- BlueOS XML API endpoint: `http://192.168.88.15:11000/Services`
 - Uses HTTP GET for queries, POST for control commands
 - All responses parsed from XML to Python dictionaries
 - JMESPath used for extracting nested data from API responses
+
+## CRITICAL BlueOS API Note
+
+- The `/Services` endpoint documents all available BlueOS API endpoints
 
 ## Configuration Management
 
