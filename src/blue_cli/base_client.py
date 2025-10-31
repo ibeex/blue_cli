@@ -23,9 +23,17 @@ class Song:
     title: str
     album: str
     song_id: int
+    secs: int | None = None
+    totlen: int | None = None
 
     def __str__(self):
         return f"{self.song_id}: {self.artist} - {self.album} - {self.title}"
+
+
+def format_time(seconds: int) -> str:
+    """Format seconds as M:SS or MM:SS time string"""
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes}:{secs:02d}"
 
 
 class BluesoundBaseClient:
@@ -122,9 +130,17 @@ class BluesoundBaseClient:
                 rprint(f"[green]{album_no:02}/{last_song_id:03}[/] {album_display}")
             album_no += 1
 
+        # Build time/progress display if available
+        time_display = ""
+        if status.secs is not None and status.totlen is not None:
+            current_time = format_time(status.secs)
+            total_time = format_time(status.totlen)
+            percentage = int((status.secs / status.totlen) * 100) if status.totlen > 0 else 0
+            time_display = f" [{current_time} / {total_time} ({percentage}%)]"
+
         rprint(
             f"Playing Album No. [red]{current_album}[/] Song No. "
-            f"{status.song_id} {status.album}: {status.title} - {status.artist}"
+            f"{status.song_id} {status.album}: {status.title} - {status.artist}{time_display}"
         )
 
     def cleanup_all(self):
@@ -134,10 +150,20 @@ class BluesoundBaseClient:
     def curent_song_id(self) -> Song:
         r = self._make_request("Status")
         obj = self._parse_xml(r)
-        s = jmespath.search("status.[song, album, artist, name]", obj)
+        s = jmespath.search("status.[song, album, artist, name, secs, totlen]", obj)
         if not isinstance(s, list):
             raise TypeError
-        song = Song(artist=s[2], title=s[3], album=s[1], song_id=int(s[0]))  # type: ignore
+        # Extract optional time fields, converting to int if present
+        secs = int(s[4]) if s[4] is not None else None
+        totlen = int(s[5]) if s[5] is not None else None
+        song = Song(
+            artist=s[2],
+            title=s[3],
+            album=s[1],
+            song_id=int(s[0]),
+            secs=secs,
+            totlen=totlen,
+        )  # type: ignore
         return song
 
     def cleanup(self):
