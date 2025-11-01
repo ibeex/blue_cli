@@ -130,6 +130,16 @@ class BluesoundBaseClient:
                 rprint(f"[green]{album_no:02}/{last_song_id:03}[/] {album_display}")
             album_no += 1
 
+        # Get position within album
+        playlist = self.playlist_service.get_playlist()
+        current_song = playlist.find_song_by_id(status.song_id)
+        album_position_display = ""
+        if current_song:
+            album_songs = playlist.get_songs_by_album_id(current_song.album_id)
+            position = next((i + 1 for i, s in enumerate(album_songs) if s.id == status.song_id), 0)
+            total = len(album_songs)
+            album_position_display = f" Song {position}/{total}"
+
         # Build time/progress display if available
         time_display = ""
         if status.secs is not None and status.totlen is not None:
@@ -139,8 +149,8 @@ class BluesoundBaseClient:
             time_display = f" [{current_time} / {total_time} ({percentage}%)]"
 
         rprint(
-            f"Playing Album No. [red]{current_album}[/] Song No. "
-            f"{status.song_id} {status.album}: {status.title} - {status.artist}{time_display}"
+            f"Playing Album No. [red]{current_album}[/]{album_position_display} "
+            f"{status.album}: {status.title} - {status.artist}{time_display}"
         )
 
     def cleanup_all(self):
