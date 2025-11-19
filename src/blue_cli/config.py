@@ -10,7 +10,7 @@ __version__ = "1.0.0"
 __author__ = "IbeeX"
 
 MEDIA_LOCATION = "Library"
-AI_MODEL = "gpt-5"
+AI_MODEL = "openai/gpt-5.1-chat"
 
 home = Path.home()
 cache_path = home / ".cache" / "blue"

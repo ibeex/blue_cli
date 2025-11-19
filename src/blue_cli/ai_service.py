@@ -270,7 +270,6 @@ class AIClient:
                 model=get_ai_model(),
                 messages=[{"role": "user", "content": prompt}],
                 max_completion_tokens=self.config.max_completion_tokens,
-                reasoning_effort="minimal",
             )
 
             if response and response.choices and response.choices[0].message.content:
