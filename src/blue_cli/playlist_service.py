@@ -60,6 +60,37 @@ class PlaylistInfo:
             for (artist, album, album_id), data in album_dict.items()
         ]
 
+    def get_contiguous_album_blocks(self) -> list[tuple[str, str, int, int, int]]:
+        """Get contiguous album blocks as (artist, album, song_count, album_id, last_song_id)
+
+        Unlike get_albums_with_last_song_id(), this treats each contiguous sequence
+        of the same album as a separate entry, so duplicate albums in the queue
+        are shown separately.
+        """
+        if not self.songs:
+            return []
+
+        blocks = []
+        current_key = (self.songs[0].artist, self.songs[0].album, self.songs[0].album_id)
+        block_count = 1
+        block_last_id = self.songs[0].id
+
+        for song in self.songs[1:]:
+            song_key = (song.artist, song.album, song.album_id)
+            if song_key == current_key:
+                block_count += 1
+                block_last_id = song.id
+            else:
+                artist, album, album_id = current_key
+                blocks.append((artist, album, block_count, album_id, block_last_id))
+                current_key = song_key
+                block_count = 1
+                block_last_id = song.id
+
+        artist, album, album_id = current_key
+        blocks.append((artist, album, block_count, album_id, block_last_id))
+        return blocks
+
     def find_song_by_id(self, song_id: int) -> PlaylistSong | None:
         """Find a song by its ID"""
         return next((song for song in self.songs if song.id == song_id), None)
@@ -147,6 +178,11 @@ class PlaylistService:
         """Get albums with last song positions"""
         playlist = self.get_playlist()
         return playlist.get_albums_with_last_song_id()
+
+    def get_album_blocks(self) -> list[tuple[str, str, int, int, int]]:
+        """Get contiguous album blocks (treats duplicate albums as separate entries)"""
+        playlist = self.get_playlist()
+        return playlist.get_contiguous_album_blocks()
 
     def get_albums_up_to_current(
         self, current_song_id: int, current_artist: str, current_album: str

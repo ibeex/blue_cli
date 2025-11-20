@@ -114,9 +114,7 @@ class BluesoundBaseClient:
         s = console.status("Getin queue...")
         s.start()
         status = self.curent_song_id()
-        albums = self.playlist_service.get_albums_up_to_current(
-            status.song_id, status.artist, status.album
-        )
+        albums = self.playlist_service.get_album_blocks()
         current_album = 1
         s.stop()
 
