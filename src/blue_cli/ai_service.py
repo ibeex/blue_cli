@@ -511,6 +511,23 @@ class AIRecommendationService:
         self.parser = RecommendationParser()
         self.display_service = RecommendationDisplayService()
 
+    def _validate_current_song_metadata(
+        self, artist: str | None, album: str | None
+    ) -> tuple[str, str] | None:
+        """Ensure we have usable artist and album information."""
+        clean_artist = (artist or "").strip()
+        clean_album = (album or "").strip()
+
+        if not clean_artist or not clean_album:
+            rprint("[red]Unable to determine the current artist and album from the player.[/]")
+            rprint(
+                "Start playback of a track with full metadata or provide a prompt: "
+                "blue_cli ai 'describe the music'"
+            )
+            return None
+
+        return clean_artist, clean_album
+
     def _get_ai_recommendations(self, artist: str, album: str) -> list[Recommendation]:
         """Get AI recommendations and parse them into structured data."""
         try:
@@ -577,7 +594,9 @@ class AIRecommendationService:
             rprint(f"[red]{str(e)}[/]")
             return False
 
-    def get_recommendations_and_enqueue(self, current_artist: str, current_album: str) -> int:
+    def get_recommendations_and_enqueue(
+        self, current_artist: str | None, current_album: str | None
+    ) -> int:
         """
         Get AI recommendations for the current artist and add albums to queue.
 
@@ -588,9 +607,16 @@ class AIRecommendationService:
         Returns:
             Number of albums successfully added to queue
         """
-        self.display_service.display_getting_recommendations(current_artist, current_album)
+        metadata = self._validate_current_song_metadata(current_artist, current_album)
+        if metadata is None:
+            return 0
 
-        recommendations = self._get_ai_recommendations(current_artist, current_album)
+        current_artist_clean, current_album_clean = metadata
+        self.display_service.display_getting_recommendations(
+            current_artist_clean, current_album_clean
+        )
+
+        recommendations = self._get_ai_recommendations(current_artist_clean, current_album_clean)
         if not recommendations:
             return 0
 
@@ -600,7 +626,7 @@ class AIRecommendationService:
         self.display_service.display_final_success(added_count)
 
         if recommendations:
-            self._generate_explanation(current_artist, current_album, recommendations)
+            self._generate_explanation(current_artist_clean, current_album_clean, recommendations)
 
         return added_count
 
@@ -653,7 +679,9 @@ class AIRecommendationService:
         if recommendations:
             self._generate_prompt_explanation(text_prompt, recommendations)
 
-    def get_recommendations_test_mode(self, current_artist: str, current_album: str) -> None:
+    def get_recommendations_test_mode(
+        self, current_artist: str | None, current_album: str | None
+    ) -> None:
         """
         Get AI recommendations and display search results without adding to queue.
 
@@ -661,11 +689,16 @@ class AIRecommendationService:
             current_artist: The artist name from the currently playing song
             current_album: The album name from the currently playing song
         """
+        metadata = self._validate_current_song_metadata(current_artist, current_album)
+        if metadata is None:
+            return
+
+        current_artist_clean, current_album_clean = metadata
         self.display_service.display_getting_recommendations(
-            current_artist, current_album, test_mode=True
+            current_artist_clean, current_album_clean, test_mode=True
         )
 
-        recommendations = self._get_ai_recommendations(current_artist, current_album)
+        recommendations = self._get_ai_recommendations(current_artist_clean, current_album_clean)
         if not recommendations:
             return
 
@@ -675,7 +708,7 @@ class AIRecommendationService:
         self.display_service.display_test_summary(found_count, len(recommendations))
 
         if recommendations:
-            self._generate_explanation(current_artist, current_album, recommendations)
+            self._generate_explanation(current_artist_clean, current_album_clean, recommendations)
 
     def _process_recommendations_for_queue(self, recommendations: list[Recommendation]) -> int:
         """Process recommendations by adding them to queue."""
