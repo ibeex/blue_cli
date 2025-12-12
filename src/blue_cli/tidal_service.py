@@ -23,6 +23,32 @@ h.ignore_images = True
 __version__ = "1.0.0"
 __author__ = "IbeeX"
 
+ALBUM_VARIANT_PATTERNS = [
+    "deluxe",
+    "remix",
+    "remaster",
+    "acoustic",
+    "expanded",
+    "bonus",
+    "demo",
+]
+
+
+def _is_album_variant(title: str) -> bool:
+    """Check if album title indicates a variant (deluxe, remix, etc.)"""
+    title_lower = title.lower()
+    if "(" in title_lower:
+        paren_content = title_lower[title_lower.find("(") : title_lower.find(")") + 1]
+        return any(pattern in paren_content for pattern in ALBUM_VARIANT_PATTERNS)
+    return False
+
+
+def _filter_album_variants(albums: list) -> tuple[list, list]:
+    """Filter out album variants. Returns (filtered_albums, skipped_albums)."""
+    original = [a for a in albums if not _is_album_variant(a["title"])]
+    skipped = [a for a in albums if _is_album_variant(a["title"])]
+    return (original if original else albums, skipped)
+
 
 class TidalService(BluesoundBaseClient):
     def __init__(self, host: str, port: int) -> None:
@@ -364,33 +390,48 @@ class TidalService(BluesoundBaseClient):
             rprint(f"Added {selected_album} to queue.")
 
     def add_latest_albums_from_favorites(
-        self, number_of_albums: int, random_selection=False, random_random=False
+        self,
+        number_of_albums: int,
+        random_selection=False,
+        random_random=False,
+        include_variants=False,
+        verbose=False,
     ):
-        # Get favorite artists
         favorite_artists = self.search_artists()
         if random_selection:
             random.shuffle(favorite_artists)
 
         added_albums = []
+        skipped_albums = []
         for artist in favorite_artists[:number_of_albums]:
-            # Get albums for each artist
             albums = self.get_albums(artist["id"])
             if albums:
-                # Pick latest album or random album
-                if random_random:
-                    _album = random.choice(albums)
+                if include_variants:
+                    filtered_albums = albums
                 else:
-                    _album = sorted(albums, key=lambda x: x["date"], reverse=True)[0]
-                # Add to queue
+                    filtered_albums, skipped = _filter_album_variants(albums)
+                    skipped_albums.extend(skipped)
+
+                if random_random:
+                    _album = random.choice(filtered_albums)
+                else:
+                    _album = sorted(filtered_albums, key=lambda x: x["date"], reverse=True)[0]
+
                 self.add_album_to_queue(_album["id"])
                 added_albums.append(f"{artist['name']}: {_album['title']}")
 
-        # Print summary
-        rprint(
-            f"[bold green]Added {'random' if random else 'latest'} albums from favorite artists:[/bold green]"
-        )
+        rprint(f"[bold green]Added {'random' if random_random else 'latest'} albums:[/bold green]")
         for album in added_albums:
             rprint(f"- {album}")
+
+        if skipped_albums:
+            rprint(
+                f"[dim](Skipped {len(skipped_albums)} variant albums: deluxe, remix, etc.)[/dim]"
+            )
+            if verbose:
+                rprint("[dim]Skipped albums:[/dim]")
+                for album in skipped_albums:
+                    rprint(f"[dim]  - {album['artist']}: {album['title']}[/dim]")
 
     def add_artist_to_favorites(self, artist_id: str):
         """Add an artist to TIDAL favorites"""

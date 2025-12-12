@@ -183,19 +183,23 @@ def favorite(tidal: TidalService, artist):
 @online.command()
 @click.argument("number", default=5, type=int)
 @click.option("--random", "-R", is_flag=True, help="Randomize album selection")
+@click.option("--include-variants", "-V", is_flag=True, help="Include deluxe/remix versions")
+@click.option("--verbose", "-v", is_flag=True, help="Show skipped albums")
 @with_tidal_service
-def random(tidal: TidalService, number, random):
+def random(tidal: TidalService, number, random, include_variants, verbose):
     """Add latest albums from random favorite artists"""
-    tidal.add_latest_albums_from_favorites(number, True, random)
+    tidal.add_latest_albums_from_favorites(number, True, random, include_variants, verbose)
 
 
 @online.command()
 @click.argument("number", default=5, type=int)
 @click.option("--random", "-R", is_flag=True, help="Randomize album selection")
+@click.option("--include-variants", "-V", is_flag=True, help="Include deluxe/remix versions")
+@click.option("--verbose", "-v", is_flag=True, help="Show skipped albums")
 @with_tidal_service
-def latest(tidal: TidalService, number, random):
+def latest(tidal: TidalService, number, random, include_variants, verbose):
     """Add latest albums from last favorite artists"""
-    tidal.add_latest_albums_from_favorites(number, False, random)
+    tidal.add_latest_albums_from_favorites(number, False, random, include_variants, verbose)
 
 
 @online.group(cls=AliasedGroup)
