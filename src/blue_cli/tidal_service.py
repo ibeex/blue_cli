@@ -26,7 +26,6 @@ __author__ = "IbeeX"
 ALBUM_VARIANT_PATTERNS = [
     "deluxe",
     "remix",
-    "remaster",
     "acoustic",
     "expanded",
     "bonus",
@@ -43,11 +42,54 @@ def _is_album_variant(title: str) -> bool:
     return False
 
 
-def _filter_album_variants(albums: list) -> tuple[list, list]:
-    """Filter out album variants. Returns (filtered_albums, skipped_albums)."""
-    original = [a for a in albums if not _is_album_variant(a["title"])]
-    skipped = [a for a in albums if _is_album_variant(a["title"])]
-    return (original if original else albums, skipped)
+def _get_base_album_name(title: str) -> str:
+    """Extract base album name without variant info in parentheses"""
+    if "(" in title:
+        return title[: title.find("(")].strip()
+    return title
+
+
+def _find_standard_version(base_name: str, albums: list):
+    """Find a non-variant album matching the base name"""
+    for album in albums:
+        if not _is_album_variant(album["title"]):
+            if _get_base_album_name(album["title"]) == base_name:
+                return album
+    return None
+
+
+def _select_best_album(albums: list, prefer_latest: bool = True):
+    """
+    Select best album, preferring non-variants or standard versions.
+    If a variant is selected, tries to find the standard version first.
+    Returns (selected_album, list_of_skipped_albums)
+    """
+    if not albums:
+        return None, []
+
+    skipped = []
+    remaining = albums.copy()
+
+    while remaining:
+        if prefer_latest:
+            candidate = sorted(remaining, key=lambda x: x["date"], reverse=True)[0]
+        else:
+            candidate = random.choice(remaining)
+
+        remaining = [a for a in remaining if a["id"] != candidate["id"]]
+
+        if not _is_album_variant(candidate["title"]):
+            return candidate, skipped
+
+        base_name = _get_base_album_name(candidate["title"])
+        standard = _find_standard_version(base_name, albums)
+
+        if standard and standard["id"] != candidate["id"]:
+            return standard, skipped
+        else:
+            skipped.append(candidate)
+
+    return None, skipped
 
 
 class TidalService(BluesoundBaseClient):
@@ -405,20 +447,23 @@ class TidalService(BluesoundBaseClient):
         skipped_albums = []
         for artist in favorite_artists[:number_of_albums]:
             albums = self.get_albums(artist["id"])
-            if albums:
-                if include_variants:
-                    filtered_albums = albums
-                else:
-                    filtered_albums, skipped = _filter_album_variants(albums)
-                    skipped_albums.extend(skipped)
+            if not albums:
+                continue
 
+            if include_variants:
                 if random_random:
-                    _album = random.choice(filtered_albums)
+                    selected = random.choice(albums)
                 else:
-                    _album = sorted(filtered_albums, key=lambda x: x["date"], reverse=True)[0]
+                    selected = sorted(albums, key=lambda x: x["date"], reverse=True)[0]
+            else:
+                selected, skipped = _select_best_album(albums, prefer_latest=not random_random)
+                skipped_albums.extend(skipped)
 
-                self.add_album_to_queue(_album["id"])
-                added_albums.append(f"{artist['name']}: {_album['title']}")
+                if not selected:
+                    continue
+
+            self.add_album_to_queue(selected["id"])
+            added_albums.append(f"{artist['name']}: {selected['title']}")
 
         rprint(f"[bold green]Added {'random' if random_random else 'latest'} albums:[/bold green]")
         for album in added_albums:
