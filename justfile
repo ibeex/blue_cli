@@ -2,8 +2,9 @@
 # See development.md for docs.
 # Note GitHub Actions call uv directly, not this justfile.
 
-# Run uv sync, lint, and test by default
-default: install lint test
+# list all tasks
+default:
+  @just --list
 
 # Install dependencies
 install:
