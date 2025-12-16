@@ -182,13 +182,14 @@ def favorite(tidal: TidalService, artist):
 
 @online.command()
 @click.argument("number", default=5, type=int)
-@click.option("--random", "-R", is_flag=True, help="Randomize album selection")
+@click.option("--latest", "-l", "-L", is_flag=True, help="Use latest album instead of random")
 @click.option("--include-variants", "-V", is_flag=True, help="Include deluxe/remix versions")
 @click.option("--verbose", "-v", is_flag=True, help="Show skipped albums")
 @with_tidal_service
-def random(tidal: TidalService, number, random, include_variants, verbose):
-    """Add latest albums from random favorite artists"""
-    tidal.add_latest_albums_from_favorites(number, True, random, include_variants, verbose)
+def random(tidal: TidalService, number, latest, include_variants, verbose):
+    """Add albums from random favorite artists (random album by default)"""
+    random_album = not latest
+    tidal.add_latest_albums_from_favorites(number, True, random_album, include_variants, verbose)
 
 
 @online.command()
