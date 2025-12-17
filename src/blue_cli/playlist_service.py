@@ -31,33 +31,60 @@ class PlaylistInfo:
         """Get all songs from a specific album"""
         return [song for song in self.songs if song.album_id == album_id]
 
+    @staticmethod
+    def _get_dominant_artist(artists: list[str]) -> str:
+        """Determine the display artist from a list of artists.
+
+        Returns the most common artist if it represents >50% of tracks,
+        otherwise returns 'Various Artists'.
+        """
+        if not artists:
+            return ""
+
+        from collections import Counter
+
+        artist_counts = Counter(artists)
+        most_common_artist, count = artist_counts.most_common(1)[0]
+
+        if count > len(artists) / 2:
+            return most_common_artist
+        return "Various Artists"
+
     def get_unique_albums(self) -> list[tuple[str, str, int, int]]:
         """Get unique albums as (artist, album, song_count, album_id)"""
         album_dict = {}
         for song in self.songs:
-            key = (song.artist, song.album, song.album_id)
+            key = (song.album, song.album_id)
             if key not in album_dict:
-                album_dict[key] = 0
-            album_dict[key] += 1
+                album_dict[key] = {"count": 0, "artists": []}
+            album_dict[key]["count"] += 1
+            album_dict[key]["artists"].append(song.artist)
 
         return [
-            (artist, album, count, album_id)
-            for (artist, album, album_id), count in album_dict.items()
+            (self._get_dominant_artist(data["artists"]), album, data["count"], album_id)
+            for (album, album_id), data in album_dict.items()
         ]
 
     def get_albums_with_last_song_id(self) -> list[tuple[str, str, int, int, int]]:
         """Get unique albums as (artist, album, song_count, album_id, last_song_id)"""
         album_dict = {}
         for song in self.songs:
-            key = (song.artist, song.album, song.album_id)
+            key = (song.album, song.album_id)
             if key not in album_dict:
-                album_dict[key] = {"count": 0, "last_song_id": 0}
+                album_dict[key] = {"count": 0, "last_song_id": 0, "artists": []}
             album_dict[key]["count"] += 1
             album_dict[key]["last_song_id"] = max(album_dict[key]["last_song_id"], song.id)
+            album_dict[key]["artists"].append(song.artist)
 
         return [
-            (artist, album, data["count"], album_id, data["last_song_id"])
-            for (artist, album, album_id), data in album_dict.items()
+            (
+                self._get_dominant_artist(data["artists"]),
+                album,
+                data["count"],
+                album_id,
+                data["last_song_id"],
+            )
+            for (album, album_id), data in album_dict.items()
         ]
 
     def get_contiguous_album_blocks(self) -> list[tuple[str, str, int, int, int]]:
@@ -71,23 +98,28 @@ class PlaylistInfo:
             return []
 
         blocks = []
-        current_key = (self.songs[0].artist, self.songs[0].album, self.songs[0].album_id)
+        current_key = (self.songs[0].album, self.songs[0].album_id)
         block_count = 1
         block_last_id = self.songs[0].id
+        block_artists = [self.songs[0].artist]
 
         for song in self.songs[1:]:
-            song_key = (song.artist, song.album, song.album_id)
+            song_key = (song.album, song.album_id)
             if song_key == current_key:
                 block_count += 1
                 block_last_id = song.id
+                block_artists.append(song.artist)
             else:
-                artist, album, album_id = current_key
+                album, album_id = current_key
+                artist = self._get_dominant_artist(block_artists)
                 blocks.append((artist, album, block_count, album_id, block_last_id))
                 current_key = song_key
                 block_count = 1
                 block_last_id = song.id
+                block_artists = [song.artist]
 
-        artist, album, album_id = current_key
+        album, album_id = current_key
+        artist = self._get_dominant_artist(block_artists)
         blocks.append((artist, album, block_count, album_id, block_last_id))
         return blocks
 

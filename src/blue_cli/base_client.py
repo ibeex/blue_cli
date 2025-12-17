@@ -115,13 +115,18 @@ class BluesoundBaseClient:
         s.start()
         status = self.curent_song_id()
         albums = self.playlist_service.get_album_blocks()
+
+        # Get current song to retrieve album_id for matching
+        playlist = self.playlist_service.get_playlist()
+        current_song = playlist.find_song_by_id(status.song_id)
         current_album = 1
         s.stop()
 
         album_no = 1
-        for artist, album, _count, _album_id, last_song_id in albums:
+        for artist, album, _count, album_id, last_song_id in albums:
             album_display = f"{artist} - {album}"
-            if f"{status.artist} - {status.album}" == album_display:
+            # Match by album_id to handle multi-artist albums correctly
+            if current_song and current_song.album_id == album_id:
                 current_album = album_no
                 rprint(f"[red]{album_no:02}/{status.song_id:03}[/] {album_display}")
             else:
@@ -129,8 +134,6 @@ class BluesoundBaseClient:
             album_no += 1
 
         # Get position within album
-        playlist = self.playlist_service.get_playlist()
-        current_song = playlist.find_song_by_id(status.song_id)
         album_position_display = ""
         if current_song:
             album_songs = playlist.get_songs_by_album_id(current_song.album_id)

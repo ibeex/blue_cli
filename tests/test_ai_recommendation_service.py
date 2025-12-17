@@ -13,14 +13,14 @@ def ai_service():
     with patch("blue_cli.ai_service.TidalService"):
         service = AIRecommendationService(host="example.com", port=11000)
 
-    # Replace collaborators with mocks so we can assert call behavior without network access
-    service.display_service = Mock()
-    service._get_ai_recommendations = Mock(return_value=[])
-    service._process_recommendations_for_queue = Mock(return_value=0)
-    service._process_recommendations_for_test = Mock(return_value=0)
-    service._generate_explanation = Mock()
-
-    return service
+    with (
+        patch.object(service, "_get_ai_recommendations", return_value=[]),
+        patch.object(service, "_process_recommendations_for_queue", return_value=0),
+        patch.object(service, "_process_recommendations_for_test", return_value=0),
+        patch.object(service, "_generate_explanation"),
+        patch.object(service, "display_service", Mock()),
+    ):
+        yield service
 
 
 def test_get_recommendations_and_enqueue_requires_metadata(ai_service, capsys):
