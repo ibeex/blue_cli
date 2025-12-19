@@ -244,9 +244,13 @@ class PromptTemplates:
 class AIClient:
     """Handles all OpenAI API interactions with centralized error handling."""
 
-    def __init__(self, config: AIServiceConfig | None = None):
+    def __init__(
+        self, config: AIServiceConfig | None = None, model: str | None = None, verbose: bool = False
+    ):
         self._client: openai.OpenAI | None = None
         self.config = config or AIServiceConfig()
+        self.model = model
+        self.verbose = verbose
 
     def _get_client(self) -> openai.OpenAI:
         """Get or create OpenAI client with API key validation."""
@@ -262,12 +266,19 @@ class AIClient:
                 self._client = openai.OpenAI(api_key=api_key)
         return self._client
 
+    def _get_model(self) -> str:
+        """Resolve the model to use for requests."""
+        return self.model or get_ai_model()
+
     def make_request(self, prompt: str, response_type: ResponseType) -> AIResponse:
         """Make AI request with standardized error handling."""
         try:
             client = self._get_client()
+            if self.verbose:
+                rprint(f"[dim]Prompt ({response_type.value}):[/]\n{prompt}\n")
+
             response = client.chat.completions.create(
-                model=get_ai_model(),
+                model=self._get_model(),
                 messages=[{"role": "user", "content": prompt}],
                 max_completion_tokens=self.config.max_completion_tokens,
             )
@@ -501,11 +512,17 @@ class RecommendationDisplayService:
 class AIRecommendationService:
     """Service for getting AI-powered music recommendations based on current song."""
 
-    def __init__(self, host: str | None = None, port: int | None = None):
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        model: str | None = None,
+        verbose: bool = False,
+    ):
         self.host = host or get_host()
         self.port = port or get_port()
         self.tidal_service = TidalService(host=self.host, port=self.port)
-        self.ai_client = AIClient()
+        self.ai_client = AIClient(model=model, verbose=verbose)
         self.search_service = AlbumSearchService(self.tidal_service)
         self.explanation_service = ExplanationService(self.ai_client)
         self.parser = RecommendationParser()

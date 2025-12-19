@@ -227,10 +227,14 @@ def volume(blue: BlueSound, value):
 @cli.command()
 @click.argument("prompt", required=False)
 @click.option("--test", "-t", is_flag=True, help="Test mode: show results without adding to queue")
+@click.option("--model", "-m", help="Override AI model from config")
+@click.option("--verbose", "-v", is_flag=True, help="Show prompts sent to the AI model")
 @with_blue_service
-def ai(blue: BlueSound, prompt, test):
+def ai(blue: BlueSound, prompt, test, model, verbose):
     """Get AI recommendations based on current song or custom prompt and add to queue"""
-    ai_service = AIRecommendationService(host=get_host(), port=get_port())
+    ai_service = AIRecommendationService(
+        host=get_host(), port=get_port(), model=model, verbose=verbose
+    )
 
     if prompt:
         # Use custom prompt for recommendations
