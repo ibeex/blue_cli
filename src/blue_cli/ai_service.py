@@ -187,15 +187,17 @@ class PromptTemplates:
         """Generate prompt for music recommendations."""
         config = AIServiceConfig()
         return dedent(f"""
-            Can you provide a list of {config.recommendation_count} bands that are similar in musical sound/style to {artist}
-            (specifically their album '{album}'), or that share band members, producers,
-            or other key collaborators with them?
+            Find {config.recommendation_count} bands similar to {artist}'s album '{album}' based on:
+            - Musical sound/style similarity
+            - Shared band members, producers, or collaborators
 
-            Exclude any Rap or Hip-Hop artists.
+            Requirements:
+            - Exclude Rap/Hip-Hop artists
+            - Include one album per band (the most similar to '{album}')
+            - Format: "Band Name - Album Name" (one per line)
+            - No additional text or explanations
 
-            For each band, please include a notable album or release.
-            Format your response as: Band Name - Album Name (one per line).
-            Nothing more in response, just the list of bands and albums.
+            Output the list only.
         """).strip()
 
     @staticmethod
@@ -213,31 +215,52 @@ class PromptTemplates:
         """).strip()
 
     @staticmethod
-    def general_explanation_prompt(
+    def explanation_prompt(
         current_artist: str, current_album: str, recommendations: list[Recommendation]
     ) -> str:
-        """Generate prompt for general explanation of recommendations."""
-        rec_list = ", ".join([f"{rec.artist} ({rec.album})" for rec in recommendations])
+        """Generate prompt for both overview and individual recommendation explanations."""
+        rec_list = "\n".join([f"- {rec.artist} - {rec.album}" for rec in recommendations])
         return dedent(f"""
-            I was listening to '{current_album}' by {current_artist} and got these music recommendations: {rec_list}.
+            I was listening to '{current_album}' by {current_artist} and got these recommendations:
+            {rec_list}
 
-            Provide a brief 2-3 sentence explanation of the overall musical connections and themes that link
-            these recommendations to {current_artist}'s '{current_album}'.
+            Provide:
+            1. OVERVIEW: 2-3 sentences on the overall musical connections
+            2. INDIVIDUAL: For each recommendation, 1 sentence explaining the specific connection
 
-            Focus on musical style, era, influences, or collaborative connections.
+            Format:
+            OVERVIEW:
+            [your overview]
+
+            INDIVIDUAL:
+            1. [Artist - Album]: [explanation]
+            2. [Artist - Album]: [explanation]
+            ...
         """).strip()
 
     @staticmethod
-    def specific_explanation_prompt(
-        current_artist: str, current_album: str, rec_artist: str, rec_album: str
+    def text_prompt_explanation_prompt(
+        text_prompt: str, recommendations: list[Recommendation]
     ) -> str:
-        """Generate prompt for specific recommendation explanation."""
+        """Generate prompt for explaining text-based recommendations."""
+        rec_list = "\n".join([f"- {rec.artist} - {rec.album}" for rec in recommendations])
         return dedent(f"""
-            Explain in 1-2 sentences why '{rec_album}' by {rec_artist} was recommended based on
-            '{current_album}' by {current_artist}.
+            I asked for music recommendations with this description: "{text_prompt}"
+            And got these recommendations:
+            {rec_list}
 
-            Focus on specific musical connections, shared members, producers, similar sound/style, era,
-            or influence relationships.
+            Provide:
+            1. OVERVIEW: 2-3 sentences on how these match my request
+            2. INDIVIDUAL: For each recommendation, 1 sentence explaining the specific match
+
+            Format:
+            OVERVIEW:
+            [your overview]
+
+            INDIVIDUAL:
+            1. [Artist - Album]: [explanation]
+            2. [Artist - Album]: [explanation]
+            ...
         """).strip()
 
 
@@ -408,13 +431,11 @@ class ExplanationService:
     def __init__(self, ai_client: AIClient):
         self.ai_client = ai_client
 
-    def get_general_explanation(
+    def get_explanation(
         self, current_artist: str, current_album: str, recommendations: list[Recommendation]
     ) -> str | None:
-        """Get general explanation for all recommendations."""
-        prompt = PromptTemplates.general_explanation_prompt(
-            current_artist, current_album, recommendations
-        )
+        """Get combined overview and individual explanations for all recommendations."""
+        prompt = PromptTemplates.explanation_prompt(current_artist, current_album, recommendations)
         response = self.ai_client.make_request(prompt, ResponseType.GENERAL_EXPLANATION)
 
         if not response.success:
@@ -423,19 +444,15 @@ class ExplanationService:
 
         return response.content
 
-    def get_specific_explanation(
-        self, current_artist: str, current_album: str, recommendation: Recommendation
+    def get_text_prompt_explanation(
+        self, text_prompt: str, recommendations: list[Recommendation]
     ) -> str | None:
-        """Get specific explanation for one recommendation."""
-        prompt = PromptTemplates.specific_explanation_prompt(
-            current_artist, current_album, recommendation.artist, recommendation.album
-        )
-        response = self.ai_client.make_request(prompt, ResponseType.SPECIFIC_EXPLANATION)
+        """Get combined overview and individual explanations for text-prompt based recommendations."""
+        prompt = PromptTemplates.text_prompt_explanation_prompt(text_prompt, recommendations)
+        response = self.ai_client.make_request(prompt, ResponseType.GENERAL_EXPLANATION)
 
         if not response.success:
-            rprint(
-                f"[dim red]Error getting explanation for {recommendation.artist}: {response.error_message}[/]"
-            )
+            rprint(f"[dim red]{response.error_message}[/]")
             return None
 
         return response.content
@@ -762,19 +779,32 @@ class AIRecommendationService:
         """Generate AI explanation for the prompt-based recommendations."""
         rprint("\n[bold magenta]🤖 AI Explanation[/]")
 
-        # Create a simple explanation prompt
-        rec_list = ", ".join([f"{rec.artist} ({rec.album})" for rec in recommendations])
-        prompt = dedent(f"""
-            I asked for music recommendations with this description: "{text_prompt}"
-            And got these recommendations: {rec_list}.
+        explanation = self.explanation_service.get_text_prompt_explanation(
+            text_prompt, recommendations
+        )
+        if not explanation:
+            return
 
-            Provide a brief 2-3 sentence explanation of how these recommendations match my request.
-            Focus on the musical style, mood, or characteristics that connect them to my description.
-        """).strip()
+        # Parse the structured response
+        overview_section = ""
+        individual_section = ""
 
-        response = self.ai_client.make_request(prompt, ResponseType.GENERAL_EXPLANATION)
-        if response.success and response.content:
-            rprint(f"\n[bold cyan]Why these recommendations?[/]\n{response.content}")
+        if "OVERVIEW:" in explanation:
+            parts = explanation.split("INDIVIDUAL:", 1)
+            overview_section = parts[0].replace("OVERVIEW:", "").strip()
+            individual_section = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            # Fallback if format is not as expected
+            overview_section = explanation
+
+        # Display overview
+        if overview_section:
+            rprint(f"\n[bold cyan]Why these recommendations?[/]\n{overview_section}")
+
+        # Display individual explanations
+        if individual_section:
+            rprint("\n[bold cyan]Individual explanations:[/]")
+            rprint(individual_section)
 
     def _generate_explanation(
         self,
@@ -785,19 +815,29 @@ class AIRecommendationService:
         """Generate AI explanation for the recommendations."""
         rprint("\n[bold magenta]🤖 AI Explanation[/]")
 
-        # Get general explanation
-        general_explanation = self.explanation_service.get_general_explanation(
+        explanation = self.explanation_service.get_explanation(
             current_artist, current_album, recommendations
         )
-        if general_explanation:
-            rprint(f"\n[bold cyan]Why these recommendations?[/]\n{general_explanation}")
+        if not explanation:
+            return
 
-        # Get specific explanations for each recommendation
-        rprint("\n[bold cyan]Individual explanations:[/]")
-        for i, recommendation in enumerate(recommendations, 1):
-            specific_explanation = self.explanation_service.get_specific_explanation(
-                current_artist, current_album, recommendation
-            )
-            if specific_explanation:
-                rprint(f"\n[yellow]{i}. {recommendation.artist} - {recommendation.album}[/]")
-                rprint(f"   {specific_explanation}")
+        # Parse the structured response
+        overview_section = ""
+        individual_section = ""
+
+        if "OVERVIEW:" in explanation:
+            parts = explanation.split("INDIVIDUAL:", 1)
+            overview_section = parts[0].replace("OVERVIEW:", "").strip()
+            individual_section = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            # Fallback if format is not as expected
+            overview_section = explanation
+
+        # Display overview
+        if overview_section:
+            rprint(f"\n[bold cyan]Why these recommendations?[/]\n{overview_section}")
+
+        # Display individual explanations
+        if individual_section:
+            rprint("\n[bold cyan]Individual explanations:[/]")
+            rprint(individual_section)
