@@ -265,7 +265,7 @@ class TestRecommendation:
 
         # Should not be able to modify frozen dataclass
         with pytest.raises((AttributeError, TypeError)):
-            rec.artist = "New Artist"  # pyright: ignore[reportAttributeAccessIssue]
+            rec.artist = "New Artist"  # type: ignore
 
 
 class TestSearchResult:
