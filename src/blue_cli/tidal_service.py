@@ -1,6 +1,7 @@
 import json
 import pickle
 import random
+import re
 import urllib.parse
 from typing import Any
 
@@ -36,9 +37,10 @@ ALBUM_VARIANT_PATTERNS = [
 def _is_album_variant(title: str) -> bool:
     """Check if album title indicates a variant (deluxe, remix, etc.)"""
     title_lower = title.lower()
-    if "(" in title_lower:
-        paren_content = title_lower[title_lower.find("(") : title_lower.find(")") + 1]
-        return any(pattern in paren_content for pattern in ALBUM_VARIANT_PATTERNS)
+    matches = re.findall(r"\((.*?)\)", title_lower)
+    for content in matches:
+        if any(pattern in content for pattern in ALBUM_VARIANT_PATTERNS):
+            return True
     return False
 
 
@@ -445,7 +447,10 @@ class TidalService(BluesoundBaseClient):
 
         added_albums = []
         skipped_albums = []
-        for artist in favorite_artists[:number_of_albums]:
+        for artist in favorite_artists:
+            if len(added_albums) >= number_of_albums:
+                break
+
             albums = self.get_albums(artist["id"])
             if not albums:
                 continue
