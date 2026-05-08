@@ -265,6 +265,14 @@ def next(blue: BlueSound, album):
         blue.next_song()
 
 
+@cli.command(name="list")
+@click.option("--albums", "-a", is_flag=True, help="Show albums only")
+@with_blue_service
+def list_cmd(blue: BlueSound, albums):
+    """Show playlist"""
+    blue.list(albums_only=albums)
+
+
 SIMPLE_COMMANDS = {
     "queue": {
         "func_name": "show_queue",
@@ -277,10 +285,6 @@ SIMPLE_COMMANDS = {
     "back": {
         "func_name": "back",
         "help": "Go to previous track",
-    },
-    "list": {
-        "func_name": "list",
-        "help": "Show playlist",
     },
 }
 

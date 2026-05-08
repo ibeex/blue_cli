@@ -183,7 +183,11 @@ class UsbService(BluesoundBaseClient):
             },
         )
 
-    def list(self):
+    def list(self, albums_only: bool = False):
+        if albums_only:
+            self.list_albums()
+            return
+
         s = console.status("Getin queue...")
         s.start()
         albums = self.playlist_service.get_formatted_queue_list()
@@ -199,6 +203,43 @@ class UsbService(BluesoundBaseClient):
             exit(1)
         next_album = song.split(":")[0].strip()
         _ = get(f"{self.url}/Play", params={"id": next_album})
+
+    def list_albums(self):
+        s = console.status("Getin queue...")
+        s.start()
+        playlist = self.playlist_service.get_playlist()
+        status = self.curent_song_id()
+        s.stop()
+
+        if not playlist.songs:
+            rprint("Queue is empty.")
+            exit(1)
+
+        album_choices = []
+        album_song_ids = {}
+        previous_key = None
+        album_no = 0
+
+        for song in playlist.songs:
+            album_key = (song.album, song.album_id)
+            if album_key == previous_key:
+                continue
+
+            album_no += 1
+            display = f"{album_no:02}/{song.id:03}: {song.artist} - {song.album}"
+            album_choices.append(display)
+            album_song_ids[display] = song.id
+            previous_key = album_key
+
+        fzf = FzfPrompt(
+            f'fzf --tiebreak=index --tmux 90%,80% --prompt="{status.song_id} {status.artist}> "'
+        )
+        try:
+            selected_album = fzf.prompt(album_choices)[0]
+        except IndexError:
+            rprint("No album found or selected.")
+            exit(1)
+        _ = get(f"{self.url}/Play", params={"id": album_song_ids[selected_album]})
 
     def next_album(self):
         """Skip to the next album"""
