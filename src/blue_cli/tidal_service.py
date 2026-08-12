@@ -2,8 +2,12 @@ import json
 import pickle
 import random
 import re
+import shlex
+import sys
+import tempfile
 import urllib.parse
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import html2text
@@ -33,6 +37,29 @@ ALBUM_VARIANT_PATTERNS = [
     "bonus",
     "demo",
 ]
+
+
+def _album_quality_rank(album: dict[str, Any]) -> int:
+    quality = str(album.get("quality") or "").casefold()
+    if quality == "hd":
+        return 2
+    if quality == "cd":
+        return 1
+    return 0
+
+
+def _deduplicate_album_qualities(albums: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the best available quality for each album release."""
+    best_albums = {}
+    for album in albums:
+        release_key = tuple(
+            str(album.get(field) or "").casefold()
+            for field in ("artist", "title", "date", "tracks")
+        )
+        existing = best_albums.get(release_key)
+        if existing is None or _album_quality_rank(album) > _album_quality_rank(existing):
+            best_albums[release_key] = album
+    return list(best_albums.values())
 
 
 def _is_album_variant(title: str) -> bool:
@@ -185,7 +212,8 @@ class TidalService(BluesoundBaseClient):
                     recent_albums.append(album)
                     seen_album_ids.add(album_id)
 
-        return sorted(recent_albums, key=lambda album: album["date"], reverse=True)
+        albums_with_best_quality = _deduplicate_album_qualities(recent_albums)
+        return sorted(albums_with_best_quality, key=lambda album: album["date"], reverse=True)
 
     def cli_search_recent_favorite_albums(self, days: int, classical_only: bool = False) -> None:
         albums = self.get_recent_favorite_albums(days, classical_only)
@@ -200,9 +228,14 @@ class TidalService(BluesoundBaseClient):
         )
         with (cache_path / "albums.json").open("w") as album_cache:
             json.dump(albums, album_cache)
-        album_id, selected_album = self.select_album(albums)
-        self.add_album_to_queue(album_id)
-        rprint(f"Added {selected_album} to queue.")
+        added_albums = self.add_recent_albums_with_fzf(albums)
+        if not added_albums:
+            rprint("No albums added.")
+            return
+
+        rprint("[bold green]Added albums:[/bold green]")
+        for album in added_albums:
+            rprint(f"- {album}")
 
     def get_artistid(self, artist: str) -> str:
         artists = json.load(open(cache_path / "artists.json"))
@@ -349,6 +382,52 @@ class TidalService(BluesoundBaseClient):
             exit(1)
 
         return album_id, selected_album
+
+    def add_recent_albums_with_fzf(self, albums: list[dict[str, Any]]) -> list[str]:
+        """Enqueue albums on Enter while keeping the recent-release picker open."""
+        separator = chr(31)
+        album_lines = [
+            f"{album['id']}\t{album['artist']}{separator}: {album['title']} {separator}/ "
+            f"{album['date']} - {album['tracks']} - {album['quality']}"
+            for album in albums
+        ]
+        albums_by_id = {str(album["id"]): album for album in albums}
+
+        with tempfile.NamedTemporaryFile(prefix="blue-cli-added-", delete=False) as added_log:
+            added_log_path = Path(added_log.name)
+
+        command = " ".join(
+            (
+                shlex.quote(sys.argv[0]),
+                "online",
+                "add-release-album",
+                "--host",
+                shlex.quote(str(self.host)),
+                "--port",
+                str(self.port),
+                "{1}",
+                shlex.quote(str(added_log_path)),
+            )
+        )
+        fzf = FzfPrompt(
+            "fzf --tmux 90%,80% --delimiter '\t' --with-nth=2.. "
+            f"--bind 'enter:execute-silent({command})+down' "
+            "--header 'enter: add album to queue | esc: finish' "
+            "--preview 'b pr tracks {2..}'"
+        )
+        try:
+            fzf.prompt(album_lines)
+        except IndexError:
+            pass
+        finally:
+            added_ids = added_log_path.read_text().splitlines()
+            added_log_path.unlink(missing_ok=True)
+
+        return [
+            f"{album['artist']}: {album['title']}"
+            for album_id in added_ids
+            if (album := albums_by_id.get(album_id))
+        ]
 
     def select_song(self, songs):
         SEPARATOR = chr(31)

@@ -1,5 +1,6 @@
 import functools
 import shutil
+from pathlib import Path
 
 import click
 
@@ -179,6 +180,17 @@ def search(tidal: TidalService, keyword, album, song, favorites):
 def releases(tidal: TidalService, days, classical_only):
     """Search recent albums from favorite artists, excluding classical artists by default."""
     tidal.cli_search_recent_favorite_albums(days, classical_only)
+
+
+@online.command("add-release-album", hidden=True)
+@click.argument("album_id")
+@click.argument("added_album_log", type=click.Path(path_type=Path))
+@with_tidal_service
+def add_release_album(tidal: TidalService, album_id, added_album_log):
+    """Add an album selected by the recent-release picker."""
+    tidal.add_album_to_queue(album_id)
+    with added_album_log.open("a") as album_log:
+        album_log.write(f"{album_id}\n")
 
 
 @online.command()
