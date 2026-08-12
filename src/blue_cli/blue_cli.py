@@ -173,6 +173,15 @@ def search(tidal: TidalService, keyword, album, song, favorites):
 
 
 @online.command()
+@click.argument("days", default=30, type=click.IntRange(min=1))
+@click.option("--classical", "classical_only", is_flag=True, help="Search only classical favorites")
+@with_tidal_service
+def releases(tidal: TidalService, days, classical_only):
+    """Search recent albums from favorite artists, excluding classical artists by default."""
+    tidal.cli_search_recent_favorite_albums(days, classical_only)
+
+
+@online.command()
 @click.argument("artist", required=False)
 @with_tidal_service
 def favorite(tidal: TidalService, artist):

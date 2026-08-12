@@ -15,6 +15,20 @@ AI_MODEL = "openai/gpt-5.1-chat"
 home = Path.home()
 cache_path = home / ".cache" / "blue"
 config_path = home / ".config" / "blue_cli"
+classical_artists_path = config_path / "classical_artists.txt"
+
+DEFAULT_CLASSICAL_ARTISTS = frozenset(
+    {
+        "Antonio Vivaldi",
+        "Daniil Trifonov",
+        "Kate Liu",
+        "Ludwig van Beethoven",
+        "Pyotr Ilyich Tchaikovsky",
+        "Sergei Rachmaninoff",
+        "Sergei Rachmaninov",
+        "Wolfgang Amadeus Mozart",
+    }
+)
 
 if not cache_path.exists():
     cache_path.mkdir(parents=True)

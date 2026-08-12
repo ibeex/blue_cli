@@ -3,6 +3,7 @@ import pickle
 import random
 import re
 import urllib.parse
+from datetime import date, timedelta
 from typing import Any
 
 import html2text
@@ -12,7 +13,7 @@ from pyfzf.pyfzf import FzfPrompt
 from rich import print as rprint
 
 from .base_client import BluesoundBaseClient
-from .config import cache_path
+from .config import DEFAULT_CLASSICAL_ARTISTS, cache_path, classical_artists_path
 from .console import console
 
 cache = Cache(cache_path, disk_pickle_protocol=pickle.HIGHEST_PROTOCOL)
@@ -147,6 +148,61 @@ class TidalService(BluesoundBaseClient):
                 json.dump(artists, f)
 
         return artists
+
+    def get_recent_favorite_albums(self, days: int, classical_only: bool = False) -> list[Any]:
+        """Return favorite artists' albums released within the requested period."""
+        if days < 1:
+            raise ValueError("days must be at least 1")
+
+        classical_artists = {artist.casefold() for artist in DEFAULT_CLASSICAL_ARTISTS}
+        if classical_artists_path.exists():
+            with classical_artists_path.open(encoding="utf-8") as artist_file:
+                classical_artists.update(
+                    line.strip().casefold()
+                    for line in artist_file
+                    if line.strip() and not line.startswith("#")
+                )
+
+        earliest_release = date.today() - timedelta(days=days)
+        recent_albums = []
+        seen_album_ids = set()
+        for artist in self.search_artists():
+            is_classical = artist["name"].casefold() in classical_artists
+            if is_classical != classical_only:
+                continue
+
+            for album in self.get_albums(artist["id"]):
+                try:
+                    release_date = date.fromisoformat(album["date"])
+                except (TypeError, ValueError):
+                    continue
+
+                album_id = album["id"]
+                if (
+                    earliest_release <= release_date <= date.today()
+                    and album_id not in seen_album_ids
+                ):
+                    recent_albums.append(album)
+                    seen_album_ids.add(album_id)
+
+        return sorted(recent_albums, key=lambda album: album["date"], reverse=True)
+
+    def cli_search_recent_favorite_albums(self, days: int, classical_only: bool = False) -> None:
+        albums = self.get_recent_favorite_albums(days, classical_only)
+        if not albums:
+            scope = "classical " if classical_only else "non-classical "
+            rprint(f"No {scope}favorite-artist albums released in the last {days} days.")
+            return
+
+        rprint(
+            f"[bold green]Found {len(albums)} {'classical ' if classical_only else ''}"
+            f"favorite-artist albums released in the last {days} days.[/bold green]"
+        )
+        with (cache_path / "albums.json").open("w") as album_cache:
+            json.dump(albums, album_cache)
+        album_id, selected_album = self.select_album(albums)
+        self.add_album_to_queue(album_id)
+        rprint(f"Added {selected_album} to queue.")
 
     def get_artistid(self, artist: str) -> str:
         artists = json.load(open(cache_path / "artists.json"))
