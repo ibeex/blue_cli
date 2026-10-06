@@ -127,6 +127,7 @@ blue_cli ai
 
 # Get AI recommendations based on custom text prompt
 blue_cli ai "relaxing jazz for studying"
+blue_cli ai "give me 8 ambient albums"
 
 # Test mode: preview recommendations without adding to queue
 blue_cli ai --test
@@ -143,6 +144,39 @@ blue_cli volume 50
 blue_cli volume +10
 blue_cli volume -5
 ```
+
+### Custom AI queries
+
+Custom prompts honor the requested quantity and ordering, defaulting to five albums when no
+quantity is specified. Classical queries request specific recordings with their credited
+performers, orchestras, or conductors, plus a composer/work identifier for broader searches.
+Direct matching tolerates punctuation, accents, and separate artist credits, but checks album
+names and work numbers. When no direct match exists, searches also try shortened titles and
+composer/work queries. Up to 20 deduplicated, ranked Tidal candidates are shown to the AI so it
+can select an existing album ID rather than guessing release names. Unknown IDs are rejected.
+If no candidate fits, the AI can correct its recommendation and try again, with at most two
+clarification attempts per recommendation. Repeated answers are skipped, and duplicate albums
+are not added twice within one request. Candidate selection is AI-assisted, not a guarantee of
+catalogue accuracy or complete track contents.
+
+Classical searches prefer a separate recording for each requested work. Coupled releases can
+be selected when they contain that work, so queueing an entire album may include additional
+symphonies or other pieces. This command enqueues albums, not individual works or movements.
+
+### Optional paid Beethoven smoke test
+
+The automated tests use mocked AI and Tidal responses, including first-four-symphonies scenarios
+with differing artist credits, subtitles, and candidate-ID clarification.
+Run this live test separately; it requires API credentials and a player with Tidal configured.
+Even `--test` makes paid AI calls, including clarification and explanation requests:
+
+```bash
+uv run blue_cli ai "give me first 4 symphonies by Beethoven" --test
+```
+
+Check that the matches cover symphonies 1–4 in order. To enqueue instead, run the command without
+`--test`. This makes a new AI request, so recordings may differ from the preview. Unresolved
+recommendations are skipped, so four successfully matched releases are not guaranteed.
 
 ### Command Aliases
 

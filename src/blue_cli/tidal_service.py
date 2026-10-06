@@ -315,8 +315,7 @@ class TidalService(BluesoundBaseClient):
             )
 
         if not albums:
-            rprint("No albums found.")
-            exit(1)
+            return []
         json.dump(albums, open(cache_path / "albums.json", "w"))
         return albums
 

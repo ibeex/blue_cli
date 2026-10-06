@@ -254,7 +254,7 @@ def volume(blue: BlueSound, value):
 def ai(blue: BlueSound, prompt, test, model, verbose):
     """Get AI recommendations based on current song or custom prompt and add to queue"""
     ai_service = AIRecommendationService(
-        host=get_host(), port=get_port(), model=model, verbose=verbose
+        host=blue.host, port=blue.port, model=model, verbose=verbose
     )
 
     if prompt:

@@ -152,8 +152,8 @@ class TestAlbumSearchService:
 
         assert result is None
 
-    def test_find_best_match_fallback_to_first_result(self):
-        """Test fallback to first result when artist matching fails."""
+    def test_find_best_match_rejects_unrelated_artists(self):
+        """An unrelated artist must not be queued just because search found results."""
         recommendation = Recommendation("Different Artist", "69")
 
         # Mock search returns albums but no artist match
@@ -161,11 +161,50 @@ class TestAlbumSearchService:
 
         result = self.search_service.find_best_match(recommendation)
 
+        assert result is None
+
+    def test_find_best_match_handles_diacritics_and_separate_artist_credit(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {**self.sample_albums[0], "artist": "Osmo Vanska", "title": "Beethoven: Symphony No. 1"}
+        ]
+
+        result = self.search_service.find_best_match(
+            Recommendation("Minnesota Orchestra, Osmo Vänskä", "Beethoven: Symphony No. 1")
+        )
+
         assert result is not None
-        # Should return first album when no artist match found
-        assert result.artist == "A. R. Kane"
-        assert result.title == "69"
+        assert result.artist == "Osmo Vanska"
+
+    def test_find_best_match_does_not_merge_work_numbers(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {**self.sample_albums[0], "title": "Symphonies Nos. 16"}
+        ]
+
+        assert (
+            self.search_service.find_best_match(
+                Recommendation("A. R. Kane", "Symphonies Nos. 1 & 6")
+            )
+            is None
+        )
+
+    def test_find_best_match_rejects_wrong_album(self):
+        recommendation = Recommendation("The Magnetic Fields", "69")
+        self.mock_tidal_service.search_albums.return_value = self.sample_albums
+
+        assert self.search_service.find_best_match(recommendation) is None
+
+    def test_find_best_match_continues_after_unrelated_results(self):
+        recommendation = Recommendation("A.R. Kane", "69")
+        self.mock_tidal_service.search_albums.side_effect = [
+            [self.sample_albums[1]],
+            self.sample_albums,
+        ]
+
+        result = self.search_service.find_best_match(recommendation)
+
+        assert result is not None
         assert result.id == 305664133
+        assert self.mock_tidal_service.search_albums.call_count == 2
 
     def test_find_best_match_search_error_handling(self):
         """Test error handling when search fails."""
