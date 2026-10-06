@@ -1,6 +1,7 @@
 """Offline tests for custom queries; no paid AI calls or real queue changes."""
 
 import json
+import re
 from unittest.mock import Mock, patch
 
 import pytest
@@ -110,8 +111,8 @@ def test_beethoven_catalogue_variants_are_resolved_using_real_candidates(service
     ]
     # Offline catalogue fixtures reproduce metadata differences, not verified live releases.
     titles = [
-        "Beethoven: Symphonies Nos. 1 & 6 (Pastorale)",
-        "Beethoven: Symphonies Nos. 2 and 7",
+        "Beethoven: Symphony No. 1, Op. 21",
+        "Beethoven: Symphony No. 2, Op. 36",
         "Beethoven: Symphony No. 3, Eroica / Strauss: Horn Concerto No. 1",
         recommendations[3]["album"],
     ]
@@ -151,7 +152,7 @@ def test_beethoven_catalogue_variants_are_resolved_using_real_candidates(service
     for number, call in enumerate(calls[1:], start=1):
         assert f"Beethoven Symphony No. {number}" in call.args[0]
         assert titles[number - 1] in call.args[0]
-        assert '"id": "99"' in call.args[0]
+        assert '"id": "99"' not in call.args[0]
         assert call.args[1] == ResponseType.CLARIFICATION
 
 
@@ -226,6 +227,265 @@ def test_candidate_context_is_capped_deduplicated_and_reset(service):
     service.tidal_service.search_albums.return_value = []
     assert service.search_service.find_best_match(Recommendation("Artist", "Missing")) is None
     assert service.search_service.candidates == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Beethoven: Complete Symphonies",
+        "Beethoven: Symphony No. 1 (Highlights)",
+        "Beethoven: Symphony No. 2, Op. 36",
+    ],
+)
+def test_wrong_or_incomplete_symphonies_are_not_candidates(service, title):
+    recommendation = Recommendation("Karajan", title, "Beethoven Symphony No. 1 Op. 21")
+    service.tidal_service.search_albums.return_value = [
+        {"id": "1", "artist": "Karajan", "title": title, "date": "2020-01-01", "tracks": "8"}
+    ]
+
+    assert service.search_service.find_best_match(recommendation) is None
+    assert service.search_service.candidates == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Beethoven: Symphony No. 1, Op. 21",
+        "Beethoven: Symphony I",
+        "Beethoven: Symphony No. 1 / Piano Concerto No. 2",
+        "Beethoven: Symphonies Nos. 1 & 2",
+        "Beethoven: Symphonies Nos. 1 and 6",
+        "Beethoven: Symphony No. 1 & 2",
+        "Beethoven: Symphony No. 1 / Symphony No. 2",
+        "Beethoven: Symphony No. 1–2",
+    ],
+)
+def test_album_containing_requested_symphony_is_allowed(service, title):
+    assert service.search_service.matches_requested_work(
+        Recommendation("Artist", "Title", "Beethoven Symphony No. 1 Op. 21"), title
+    )
+
+
+def test_coupled_symphony_is_allowed_without_model_work_field(service):
+    title = "Beethoven: Symphonies Nos. 1 & 2"
+    assert service.search_service.matches_requested_work(Recommendation("Karajan", title), title)
+
+
+def test_coupled_first_album_skips_already_covered_second_symphony(service, capsys):
+    recommendations = [
+        {
+            "artist": "Karajan",
+            "album": "Beethoven: Symphonies Nos. 1 & 2",
+            "work": "Beethoven Symphony No. 1 Op. 21",
+        },
+        {
+            "artist": "Barenboim",
+            "album": "Beethoven: Symphony No. 2, Op. 36",
+            "work": "Beethoven Symphony No. 2 Op. 36",
+        },
+    ]
+    service.tidal_service.search_albums.return_value = [
+        {
+            "id": "12",
+            "artist": "Karajan",
+            "title": recommendations[0]["album"],
+            "date": "2020-01-01",
+            "tracks": "8",
+        },
+        {
+            "id": "1",
+            "artist": "Barenboim",
+            "title": "Beethoven: Symphony No. 1, Op. 21",
+            "date": "2020-01-01",
+            "tracks": "4",
+        },
+        {
+            "id": "2",
+            "artist": "Barenboim",
+            "title": recommendations[1]["album"],
+            "date": "2020-01-01",
+            "tracks": "4",
+        },
+    ]
+    service.ai_client.make_request.side_effect = [
+        response(recommendations),
+        response({"candidate_id": "1"}),
+    ]
+
+    assert service.get_prompt_recommendations_and_enqueue("first two symphonies by Beethoven") == 1
+    service.tidal_service.add_album_to_queue.assert_called_once_with(12)
+    service.ai_client.make_request.assert_called_once()
+    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+    assert "Already covered" in output
+    assert "Covered 2 of 2 requested symphonies with 1 album" in output
+
+
+def test_ai_selection_cannot_repeat_already_covered_works(service):
+    service.search_service.find_best_match = Mock(return_value=None)
+    service.search_service.candidates = [album_result(title="Beethoven: Symphonies Nos. 1 & 2")]
+    service.ai_client.make_request.return_value = response({"candidate_id": "1"})
+
+    assert (
+        service._resolve_prompt_recommendation(
+            Recommendation("Karajan", "Title", "Beethoven Symphony No. 1"),
+            "first two symphonies",
+            covered={("beethoven", 2)},
+        )
+        is None
+    )
+    service.tidal_service.add_album_to_queue.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Beethoven: Symphonies Nos. 1 & 2", [1, 2]),
+        ("Beethoven: Symphonies Nos. 1, 2 and 3", [1, 2, 3]),
+        ("Beethoven: Symphonies Nos. 1–4", [1, 2, 3, 4]),
+        ("Beethoven: Symphonies I & II", [1, 2]),
+        ("Beethoven: Symphony No. 1 / Symphony No. 2", [1, 2]),
+        ("Beethoven: Symphony No. 1, Op. 21 / Piano Concerto No. 2", [1]),
+    ],
+)
+def test_numbered_symphony_coverage_parser(service, title, expected):
+    assert service.search_service.symphony_numbers(title) == expected
+
+
+@pytest.mark.parametrize("test_mode", [False, True])
+def test_two_coupled_albums_complete_first_four_in_order(service, test_mode, capsys):
+    recommendations = [
+        Recommendation(
+            "Artist", f"Beethoven: Symphony No. {number}", f"Beethoven Symphony No. {number}"
+        )
+        for number in range(1, 5)
+    ]
+    service.search_service.find_best_match = Mock(
+        side_effect=[
+            album_result(12, "Beethoven: Symphonies Nos. 1 & 2"),
+            album_result(34, "Beethoven: Symphonies Nos. 3 & 4"),
+        ]
+    )
+
+    resolved = service._process_prompt_recommendations(
+        recommendations, "first four", test_mode=test_mode
+    )
+
+    assert len(resolved) == 2
+    searched = [call.args[0].work for call in service.search_service.find_best_match.call_args_list]
+    assert searched == ["Beethoven Symphony No. 1", "Beethoven Symphony No. 3"]
+    second_call = service.search_service.find_best_match.call_args_list[1]
+    assert second_call.kwargs["covered"] == {("beethoven", 1), ("beethoven", 2)}
+    if test_mode:
+        service.tidal_service.add_album_to_queue.assert_not_called()
+    else:
+        assert [
+            call.args[0] for call in service.tidal_service.add_album_to_queue.call_args_list
+        ] == [12, 34]
+    service.ai_client.make_request.assert_not_called()
+    service._display_work_coverage(recommendations, resolved)
+    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+    assert "Covered 4 of 4 requested symphonies with 2 albums" in output
+
+
+def test_overlapping_later_album_is_excluded_from_candidates(service):
+    coupled = "Beethoven: Symphonies Nos. 2 & 3"
+    service.tidal_service.search_albums.return_value = [
+        {"id": "23", "artist": "Artist", "title": coupled, "date": "2020-01-01", "tracks": "8"}
+    ]
+
+    assert (
+        service.search_service.find_best_match(
+            Recommendation("Artist", coupled, "Beethoven Symphony No. 3"),
+            covered={("beethoven", 2)},
+        )
+        is None
+    )
+    assert service.search_service.candidates == []
+
+
+def test_unrequested_symphonies_are_excluded_from_candidates(service):
+    title = "Beethoven: Symphonies Nos. 1 & 6"
+    service.tidal_service.search_albums.return_value = [
+        {"id": "16", "artist": "Artist", "title": title, "date": "2020-01-01", "tracks": "8"}
+    ]
+
+    assert (
+        service.search_service.find_best_match(
+            Recommendation("Artist", title, "Beethoven Symphony No. 1"),
+            allowed={("beethoven", number) for number in range(1, 5)},
+        )
+        is None
+    )
+    assert service.search_service.candidates == []
+
+
+def test_failed_enqueue_does_not_mark_symphonies_covered(service):
+    recommendations = [
+        Recommendation("Artist", "Beethoven: Symphony No. 1", "Beethoven Symphony No. 1"),
+        Recommendation("Artist", "Beethoven: Symphony No. 2", "Beethoven Symphony No. 2"),
+    ]
+    service.search_service.find_best_match = Mock(
+        side_effect=[
+            album_result(12, "Beethoven: Symphonies Nos. 1 & 2"),
+            album_result(2, "Beethoven: Symphony No. 2"),
+        ]
+    )
+    service.tidal_service.add_album_to_queue.side_effect = [RuntimeError("Failed"), None]
+
+    resolved = service._process_prompt_recommendations(recommendations, "first two")
+
+    assert len(resolved) == 1
+    assert service.search_service.find_best_match.call_count == 2
+    assert service.search_service.find_best_match.call_args.kwargs["covered"] == set()
+
+
+def test_album_with_another_composer_does_not_cover_wrong_symphony(service):
+    recommendation = Recommendation("Artist", "Title", "Beethoven Symphony No. 1")
+    title = "Beethoven: Symphony No. 1 / Brahms: Symphony No. 2"
+
+    assert service.search_service.coverage_keys(recommendation, title) == {
+        ("beethoven", 1),
+        ("brahms", 2),
+    }
+    assert not service.search_service.matches_requested_work(
+        Recommendation("Artist", "Title", "Beethoven Symphony No. 2"), title
+    )
+
+
+def test_coverage_is_separate_for_each_composer(service):
+    recommendations = [
+        Recommendation("Artist", "Beethoven: Symphony No. 1", "Beethoven Symphony No. 1"),
+        Recommendation("Artist", "Brahms: Symphony No. 1", "Brahms Symphony No. 1"),
+    ]
+    service.search_service.find_best_match = Mock(
+        side_effect=[
+            album_result(1, "Beethoven: Symphony No. 1"),
+            album_result(2, "Brahms: Symphony No. 1"),
+        ]
+    )
+
+    assert len(service._process_prompt_recommendations(recommendations, "two composers")) == 2
+
+
+def test_clarification_prompt_tells_model_already_covered_works(service):
+    service.search_service.find_best_match = Mock(
+        side_effect=[None, album_result(3, "Beethoven: Symphony No. 3")]
+    )
+    service.ai_client.make_request.return_value = response(
+        {"artist": "Artist", "album": "Beethoven: Symphony No. 3"}
+    )
+
+    assert (
+        service._resolve_prompt_recommendation(
+            Recommendation("Artist", "Wrong Title", "Beethoven Symphony No. 3"),
+            "first four",
+            covered={("beethoven", 1), ("beethoven", 2)},
+        )
+        is not None
+    )
+    prompt = service.ai_client.make_request.call_args.args[0]
+    assert "Already covered symphonies" in prompt
+    assert '["beethoven", 2]' in prompt
 
 
 def test_clarification_preserves_work_during_retry(service):

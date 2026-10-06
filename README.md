@@ -159,9 +159,17 @@ clarification attempts per recommendation. Repeated answers are skipped, and dup
 are not added twice within one request. Candidate selection is AI-assisted, not a guarantee of
 catalogue accuracy or complete track contents.
 
-Classical searches prefer a separate recording for each requested work. Coupled releases can
-be selected when they contain that work, so queueing an entire album may include additional
-symphonies or other pieces. This command enqueues albums, not individual works or movements.
+Numbered-symphony requests track work coverage separately from album IDs. An album containing
+symphonies 1 and 2 covers both: the next recommendation for symphony 2 is skipped, and processing
+continues with symphony 3. Later candidates cannot repeat already-covered symphonies or add
+symphonies outside the requested set. Coverage is keyed by composer and symphony number, and
+is recorded only after a successful queue addition (or a match in preview mode). The summary
+reports works covered rather than treating fewer albums as an incomplete request.
+
+This command enqueues whole albums, not individual works or movements. Coverage is inferred
+from numbered catalogue titles, including lists and ranges; it is not a full track-list check.
+Other accompanying pieces may still be present. Coverage applies within one command, not to
+albums already in the player's queue.
 
 ### Optional paid Beethoven smoke test
 
