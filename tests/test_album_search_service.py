@@ -206,6 +206,109 @@ class TestAlbumSearchService:
         assert result.id == 305664133
         assert self.mock_tidal_service.search_albums.call_count == 2
 
+    @pytest.mark.parametrize(
+        ("requested", "available"),
+        [
+            ("Low", "Low (2017 Remaster)"),
+            ('"Heroes"', '"Heroes" (2017 Remaster)'),
+            ('"Heroes"', "Heroes (2017 Remaster)"),
+            ("Lodger", "Lodger (2017 Remaster)"),
+            ("Low", "Low [2017 Remastered]"),
+            ("Low", "Low - Remastered 2017"),
+        ],
+    )
+    def test_remastered_albums_match_without_fallback(self, requested, available):
+        self.mock_tidal_service.search_albums.return_value = [
+            {**self.sample_albums[0], "artist": "David Bowie", "title": available}
+        ]
+
+        result = self.search_service.find_best_match(Recommendation("David Bowie", requested))
+
+        assert result is not None
+        assert result.title == available
+        self.mock_tidal_service.search_albums.assert_called_once_with(f"David Bowie {requested}")
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Low (Live)",
+            "Low (Deluxe Edition)",
+            "Low (Remix)",
+            "Low (2017 Remaster Deluxe Edition)",
+            "Low Symphony (2017 Remaster)",
+        ],
+    )
+    def test_remaster_matching_does_not_accept_other_versions(self, title):
+        self.mock_tidal_service.search_albums.return_value = [
+            {**self.sample_albums[0], "artist": "David Bowie", "title": title}
+        ]
+
+        assert self.search_service.find_best_match(Recommendation("David Bowie", "Low")) is None
+
+    def test_remaster_matching_preserves_album_numbers(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {**self.sample_albums[0], "title": "Symphonies Nos. 16 (2017 Remaster)"}
+        ]
+
+        assert (
+            self.search_service.find_best_match(
+                Recommendation("A. R. Kane", "Symphonies Nos. 1 & 6")
+            )
+            is None
+        )
+
+    def test_exact_title_is_preferred_over_remaster(self):
+        remaster = {
+            **self.sample_albums[0],
+            "artist": "David Bowie",
+            "title": "Low (2017 Remaster)",
+        }
+        exact = {**remaster, "id": "2", "title": "Low"}
+        self.mock_tidal_service.search_albums.return_value = [remaster, exact]
+
+        result = self.search_service.find_best_match(Recommendation("David Bowie", "Low"))
+
+        assert result is not None
+        assert result.id == 2
+
+    def test_quoted_album_has_unquoted_search_fallback(self):
+        bowie = {
+            **self.sample_albums[0],
+            "artist": "David Bowie",
+            "title": "Heroes (2017 Remaster)",
+        }
+        self.mock_tidal_service.search_albums.side_effect = lambda query: (
+            [bowie] if query == "Heroes" else []
+        )
+
+        result = self.search_service.find_best_match(Recommendation("David Bowie", '"Heroes"'))
+
+        assert result is not None
+        assert result.title == bowie["title"]
+        assert "Heroes" in [
+            call.args[0] for call in self.mock_tidal_service.search_albums.call_args_list
+        ]
+        assert "" not in AlbumSearchService._fallback_queries(
+            Recommendation("David Bowie", '"Heroes"')
+        )
+
+    def test_clarification_candidates_keep_requested_artist(self):
+        unrelated = [
+            {**self.sample_albums[0], "id": str(index), "artist": "Other Artist", "title": "Heroes"}
+            for index in range(1, 25)
+        ]
+        bowie = {
+            **self.sample_albums[0],
+            "id": "99",
+            "artist": "David Bowie",
+            "title": "Heroes (Special Edition)",
+        }
+        self.mock_tidal_service.search_albums.return_value = [*unrelated, bowie]
+
+        assert self.search_service.find_best_match(Recommendation("David Bowie", "Heroes")) is None
+        assert len(self.search_service.candidates) == 20
+        assert self.search_service.candidates[0].id == 99
+
     def test_find_best_match_search_error_handling(self):
         """Test error handling when search fails."""
         recommendation = Recommendation("A.R. Kane", "69")

@@ -57,6 +57,29 @@ def test_custom_query_accepts_requested_quantity(service, count):
     assert response_type == ResponseType.RECOMMENDATION
 
 
+def test_berlin_trilogy_remasters_enqueue_without_ai_clarification(service):
+    titles = ["Low", '"Heroes"', "Lodger"]
+    service.ai_client.make_request.return_value = response(
+        [{"artist": "David Bowie", "album": title} for title in titles]
+    )
+    catalogue = [
+        {
+            "id": str(index),
+            "artist": "David Bowie",
+            "title": f"{title} (2017 Remaster)",
+            "date": "2017-01-01",
+            "tracks": "10",
+        }
+        for index, title in enumerate(titles, start=1)
+    ]
+    service.tidal_service.search_albums.return_value = catalogue
+
+    assert service.get_prompt_recommendations_and_enqueue("add Bowie berlin trilogy albums") == 3
+    assert service.tidal_service.add_album_to_queue.call_count == 3
+    assert service.tidal_service.search_albums.call_count == 3
+    service.ai_client.make_request.assert_called_once()
+
+
 def test_ai_command_uses_selected_player_for_prompt_queries():
     with (
         patch("blue_cli.blue_cli.BlueSound") as player_class,

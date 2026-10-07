@@ -492,12 +492,14 @@ class AlbumSearchService:
                     return best
 
             # Limit prompt size, ranking rather than blindly truncating catalogue order.
-            target = self.normalize_name(recommendation.work or recommendation.album)
+            target = self.normalize_album_title(recommendation.work or recommendation.album)
             self.candidates = sorted(
                 collected.values(),
-                key=lambda item: SequenceMatcher(
-                    None, target, self.normalize_name(item.title)
-                ).ratio(),
+                key=lambda item: (
+                    self._find_best_artist_match([{"artist": item.artist}], recommendation.artist)
+                    is not None,
+                    SequenceMatcher(None, target, self.normalize_album_title(item.title)).ratio(),
+                ),
                 reverse=True,
             )[:20]
             return None
@@ -582,8 +584,14 @@ class AlbumSearchService:
     @staticmethod
     def _fallback_queries(recommendation: Recommendation) -> list[str]:
         title = recommendation.album
-        shorter = re.split(r"\s+-\s+|\s*/\s*|['\"(]|,?\s+Op\.", title, maxsplit=1)[0]
-        queries = [recommendation.work, shorter, re.sub(r"[^\w\s]", " ", shorter)]
+        unquoted = title.translate(str.maketrans("", "", '"“”'))
+        shorter = re.split(r"\s+-\s+|\s*/\s*|['(]|,?\s+Op\.", unquoted, maxsplit=1)[0]
+        queries = [
+            recommendation.work,
+            unquoted,
+            shorter,
+            re.sub(r"[^\w\s]", " ", shorter),
+        ]
         unique: list[str] = []
         for query in queries:
             query = " ".join(query.split())
@@ -596,24 +604,46 @@ class AlbumSearchService:
         normalized = unicodedata.normalize("NFKD", name.casefold())
         return "".join(char for char in normalized if char.isalnum())
 
+    @staticmethod
+    def _strip_remaster_suffix(title: str) -> str:
+        # Only mastering metadata is interchangeable; live/remix/deluxe titles stay distinct.
+        remaster = r"(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?(?:\s+version)?"
+        return re.sub(
+            rf"\s*(?:\({remaster}\)|\[{remaster}\]|[-–:]\s*{remaster})\s*$",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    @classmethod
+    def normalize_album_title(cls, title: str) -> str:
+        return cls.normalize_name(cls._strip_remaster_suffix(title))
+
     def _select_best_match(
         self, albums: list[dict], target_artist: str, target_album: str
     ) -> dict | None:
-        # Search results can include unrelated releases; absence is safer than a wrong enqueue.
-        title_matches = [
-            album
-            for album in albums
-            if self.normalize_name(album["title"]) == self.normalize_name(target_album)
-            and re.findall(r"\d+", album["title"]) == re.findall(r"\d+", target_album)
-        ]
-        match = self._find_best_artist_match(title_matches, target_artist)
-        if match is not None:
-            return match
-        for credit in re.split(r"\s*[,;&]\s*", target_artist):
-            if credit.strip():
-                for album in title_matches:
-                    if self.normalize_name(credit) == self.normalize_name(album["artist"]):
-                        return album
+        # Prefer the requested release exactly before accepting a remastered edition.
+        for strip_remaster in (False, True):
+            target = self._strip_remaster_suffix(target_album) if strip_remaster else target_album
+            title_matches = []
+            for album in albums:
+                title = (
+                    self._strip_remaster_suffix(album["title"])
+                    if strip_remaster
+                    else album["title"]
+                )
+                if self.normalize_name(title) == self.normalize_name(target) and re.findall(
+                    r"\d+", title
+                ) == re.findall(r"\d+", target):
+                    title_matches.append(album)
+            match = self._find_best_artist_match(title_matches, target_artist)
+            if match is not None:
+                return match
+            for credit in re.split(r"\s*[,;&]\s*", target_artist):
+                if credit.strip():
+                    for album in title_matches:
+                        if self.normalize_name(credit) == self.normalize_name(album["artist"]):
+                            return album
         return None
 
     def _create_search_result(self, album: dict) -> SearchResult:
