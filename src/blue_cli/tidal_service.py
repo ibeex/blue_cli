@@ -506,23 +506,37 @@ class TidalService(BluesoundBaseClient):
         ][0]
         return self.get_album_tracks_by_id(album_id)
 
-    @cache.memoize(expire=60 * 60 * 24 * 30)
+    @cache.memoize(name="tidal_album_tracks_with_ids", expire=60 * 60 * 24 * 30)
     def get_album_tracks_by_id(self, album_id: int):
         url = f"Songs?service=Tidal&albumid={album_id}"
         r = self._make_request(url)
         obj = self._parse_xml(r)
+        songs = jmespath.search("songs.album.song", obj)
+        if isinstance(songs, dict):
+            songs = [songs]
         tracks = jmespath.search(
-            'songs.album.song[].{ "track": track, "title": title, "artist": art, "album": alb, "quality": quality, "duration": time, "date": date }',
-            obj,
+            '[].{ "id": songid, "track": track, "title": title, "artist": art, "album": alb, "quality": quality, "duration": time, "date": date }',
+            songs or [],
         )
 
         return tracks
 
     def add_album_to_queue(self, album_id: int):
         url = f"Add?service=Tidal&albumid={album_id}&playnow=-1&where=last"
-        self._make_request(url)
+        response = self._make_request(url)
+        # BluOS can reject an operation in XML while still returning HTTP 200.
+        pending = [self._parse_xml(response)]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key.casefold() == "error":
+                        raise ValueError(f"Player rejected album {album_id}: {value}")
+                    pending.append(value)
+            elif isinstance(node, list):
+                pending.extend(node)
 
-    def add_song_to_queue(self, song_id: int):
+    def add_song_to_queue(self, song_id: int | str):
         url = f"Add?service=Tidal&songid={song_id}&playnow=-1&where=last"
         self._make_request(url)
 

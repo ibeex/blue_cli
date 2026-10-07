@@ -159,17 +159,23 @@ clarification attempts per recommendation. Repeated answers are skipped, and dup
 are not added twice within one request. Candidate selection is AI-assisted, not a guarantee of
 catalogue accuracy or complete track contents.
 
-Numbered-symphony requests track work coverage separately from album IDs. An album containing
-symphonies 1 and 2 covers both: the next recommendation for symphony 2 is skipped, and processing
-continues with symphony 3. Later candidates cannot repeat already-covered symphonies or add
-symphonies outside the requested set. Coverage is keyed by composer and symphony number, and
-is recorded only after a successful queue addition (or a match in preview mode). The summary
-reports works covered rather than treating fewer albums as an incomplete request.
+Classical work requests validate the resolved albums' actual track lists before queue changes.
+Composition identity uses composer, work type/instrument, and work or catalogue number—not the
+recording artist or album ID. This covers numbered concertos, symphonies, sonatas, quartets,
+trios, and suites. Number/catalogue aliases come from metadata, not composer-specific tables.
+If track titles are ambiguous, an additional AI call identifies works from the actual track
+list; unknown IDs, inconsistent identities, and uncertain answers are rejected.
 
-This command enqueues whole albums, not individual works or movements. Coverage is inferred
-from numbered catalogue titles, including lists and ranges; it is not a full track-list check.
-Other accompanying pieces may still be present. Coverage applies within one command, not to
-albums already in the player's queue.
+Blue CLI is album-centric: AI recommendations always queue whole albums, never individual
+tracks or movements. Track lists are used only to validate composition identity and coverage.
+Coupled albums may supply multiple requested works, but albums repeating already-selected works
+or introducing unrequested works are rejected. The AI can select another release, with rejected
+album IDs excluded from subsequent searches. If the recommendation set's complete coverage
+cannot be achieved with non-overlapping whole albums, nothing is added. Queue-update failures
+may still leave a partial queue because the player offers no transaction. Explicit requests
+for different recordings or interpretations retain repeated works. Coverage applies within one
+command, not to the player's existing queue. Unrecognized work identities still use album-level
+matching; AI identification and catalogue metadata do not guarantee musicological accuracy.
 
 ### Optional paid Beethoven smoke test
 
@@ -183,8 +189,8 @@ uv run blue_cli ai "give me first 4 symphonies by Beethoven" --test
 ```
 
 Check that the matches cover symphonies 1–4 in order. To enqueue instead, run the command without
-`--test`. This makes a new AI request, so recordings may differ from the preview. Unresolved
-recommendations are skipped, so four successfully matched releases are not guaranteed.
+`--test`. This makes a new AI request, so recordings may differ from the preview. If complete
+work coverage cannot be verified from the resolved track lists, the queue is left unchanged.
 
 ### Command Aliases
 

@@ -38,6 +38,13 @@ def album_result(album_id: int = 1, title: str = "Correct Title") -> SearchResul
     return SearchResult(album_id, "Recording Artist", title, "2020-01-01", 4)
 
 
+def mock_symphony_tracks(service, albums):
+    service.tidal_service.get_album_tracks_by_id.side_effect = lambda album_id: [
+        {"id": f"Tidal:{album_id}{index}", "title": f"{work}: Movement {index + 1}"}
+        for index, work in enumerate(albums[album_id])
+    ]
+
+
 @pytest.mark.parametrize("count", [1, 4, 7])
 def test_custom_query_accepts_requested_quantity(service, count):
     recommendations = [
@@ -163,6 +170,9 @@ def test_beethoven_catalogue_variants_are_resolved_using_real_candidates(service
         response({"candidate_id": "2"}),
     ]
 
+    mock_symphony_tracks(
+        service, {number: [f"Beethoven: Symphony No. {number}"] * 4 for number in range(1, 5)}
+    )
     assert service.get_prompt_recommendations_and_enqueue(query) == 4
     assert [call.args[0] for call in service.tidal_service.add_album_to_queue.call_args_list] == [
         1,
@@ -335,6 +345,12 @@ def test_coupled_first_album_skips_already_covered_second_symphony(service, caps
         response({"candidate_id": "1"}),
     ]
 
+    mock_symphony_tracks(
+        service,
+        {
+            12: ["Beethoven: Symphony No. 1"] * 4 + ["Beethoven: Symphony No. 2"] * 4,
+        },
+    )
     assert service.get_prompt_recommendations_and_enqueue("first two symphonies by Beethoven") == 1
     service.tidal_service.add_album_to_queue.assert_called_once_with(12)
     service.ai_client.make_request.assert_called_once()
@@ -389,6 +405,13 @@ def test_two_coupled_albums_complete_first_four_in_order(service, test_mode, cap
         ]
     )
 
+    mock_symphony_tracks(
+        service,
+        {
+            12: ["Beethoven: Symphony No. 1"] * 2 + ["Beethoven: Symphony No. 2"] * 2,
+            34: ["Beethoven: Symphony No. 3"] * 2 + ["Beethoven: Symphony No. 4"] * 2,
+        },
+    )
     resolved = service._process_prompt_recommendations(
         recommendations, "first four", test_mode=test_mode
     )
@@ -397,7 +420,8 @@ def test_two_coupled_albums_complete_first_four_in_order(service, test_mode, cap
     searched = [call.args[0].work for call in service.search_service.find_best_match.call_args_list]
     assert searched == ["Beethoven Symphony No. 1", "Beethoven Symphony No. 3"]
     second_call = service.search_service.find_best_match.call_args_list[1]
-    assert second_call.kwargs["covered"] == {("beethoven", 1), ("beethoven", 2)}
+    # Overlap is removed from actual tracks, not by excluding coupled albums during search.
+    assert second_call.kwargs["covered"] == set()
     if test_mode:
         service.tidal_service.add_album_to_queue.assert_not_called()
     else:
@@ -453,13 +477,19 @@ def test_failed_enqueue_does_not_mark_symphonies_covered(service):
             album_result(2, "Beethoven: Symphony No. 2"),
         ]
     )
-    service.tidal_service.add_album_to_queue.side_effect = [RuntimeError("Failed"), None]
+    mock_symphony_tracks(
+        service,
+        {
+            12: ["Beethoven: Symphony No. 1"] * 2 + ["Beethoven: Symphony No. 2"] * 2,
+        },
+    )
+    service.tidal_service.add_album_to_queue.side_effect = RuntimeError("Failed")
 
     resolved = service._process_prompt_recommendations(recommendations, "first two")
 
-    assert len(resolved) == 1
-    assert service.search_service.find_best_match.call_count == 2
-    assert service.search_service.find_best_match.call_args.kwargs["covered"] == set()
+    assert resolved == []
+    assert service.search_service.find_best_match.call_count == 1
+    service.tidal_service.add_album_to_queue.assert_called_once_with(12)
 
 
 def test_album_with_another_composer_does_not_cover_wrong_symphony(service):
@@ -487,6 +517,13 @@ def test_coverage_is_separate_for_each_composer(service):
         ]
     )
 
+    mock_symphony_tracks(
+        service,
+        {
+            1: ["Beethoven: Symphony No. 1"] * 4,
+            2: ["Brahms: Symphony No. 1"] * 4,
+        },
+    )
     assert len(service._process_prompt_recommendations(recommendations, "two composers")) == 2
 
 
