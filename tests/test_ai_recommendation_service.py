@@ -15,8 +15,7 @@ def ai_service():
 
     with (
         patch.object(service, "_get_ai_recommendations", return_value=[]),
-        patch.object(service, "_process_recommendations_for_queue", return_value=0),
-        patch.object(service, "_process_recommendations_for_test", return_value=0),
+        patch.object(service, "_process_prompt_recommendations", return_value=[]),
         patch.object(service, "_generate_explanation"),
         patch.object(service, "display_service", Mock()),
     ):

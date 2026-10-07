@@ -843,28 +843,6 @@ class AIRecommendationService:
             )
             rprint("  - For OpenAI: omit base_url or use https://api.openai.com/v1")
 
-    def _search_and_add_album(self, recommendation: Recommendation) -> bool:
-        """Search for an album and add it to the queue."""
-        try:
-            self.display_service.display_search_progress(recommendation)
-
-            search_result = self.search_service.find_best_match(recommendation)
-            if not search_result:
-                rprint(
-                    f"[red]No results found for {recommendation.artist} - {recommendation.album}[/]"
-                )
-                return False
-
-            if not self.search_service.add_to_queue(search_result):
-                return False
-
-            self.display_service.display_search_result(search_result)
-            return True
-
-        except SearchError as e:
-            rprint(f"[red]{str(e)}[/]")
-            return False
-
     def get_recommendations_and_enqueue(
         self, current_artist: str | None, current_album: str | None
     ) -> int:
@@ -892,12 +870,15 @@ class AIRecommendationService:
             return 0
 
         self.display_service.display_recommendations(recommendations)
-        added_count = self._process_recommendations_for_queue(recommendations)
+        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
+        added = self._process_prompt_recommendations(recommendations, context)
+        added_count = len(added)
 
         self.display_service.display_final_success(added_count)
+        self._display_work_coverage(recommendations, added)
 
-        if recommendations:
-            self._generate_explanation(current_artist_clean, current_album_clean, recommendations)
+        if added:
+            self._generate_explanation(current_artist_clean, current_album_clean, added)
 
         return added_count
 
@@ -977,39 +958,16 @@ class AIRecommendationService:
             return
 
         self.display_service.display_recommendations(recommendations)
-        found_count = self._process_recommendations_for_test(recommendations)
+        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
+        found = self._process_prompt_recommendations(recommendations, context, test_mode=True)
 
-        self.display_service.display_test_summary(found_count, len(recommendations))
+        if self._display_work_coverage(recommendations, found):
+            rprint("[dim]Run without --test to actually add albums to queue[/]")
+        else:
+            self.display_service.display_test_summary(len(found), len(recommendations))
 
-        if recommendations:
-            self._generate_explanation(current_artist_clean, current_album_clean, recommendations)
-
-    def _process_recommendations_for_queue(self, recommendations: list[Recommendation]) -> int:
-        """Process recommendations by adding them to queue."""
-        added_count = 0
-        for recommendation in recommendations:
-            if self._search_and_add_album(recommendation):
-                added_count += 1
-        return added_count
-
-    def _process_recommendations_for_test(self, recommendations: list[Recommendation]) -> int:
-        """Process recommendations in test mode (search only, no queue addition)."""
-        found_count = 0
-        for recommendation in recommendations:
-            try:
-                self.display_service.display_search_progress(recommendation)
-
-                search_result = self.search_service.find_best_match(recommendation)
-                if search_result:
-                    self.display_service.display_search_test_result(search_result)
-                    found_count += 1
-                else:
-                    self.display_service.display_no_results()
-
-            except SearchError as e:
-                self.display_service.display_search_error(str(e))
-
-        return found_count
+        if found:
+            self._generate_explanation(current_artist_clean, current_album_clean, found)
 
     def _resolve_prompt_recommendation(
         self,
