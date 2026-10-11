@@ -145,6 +145,10 @@ blue_cli volume +10
 blue_cli volume -5
 ```
 
+Current-song AI recommendations (`blue_cli ai` without a custom prompt) try to add five
+distinct albums across all genres; only duplicate album IDs are skipped. Test mode reports
+albums found out of those recommended.
+
 ### Custom AI queries
 
 Custom prompts honor the requested quantity and ordering, defaulting to five albums when no

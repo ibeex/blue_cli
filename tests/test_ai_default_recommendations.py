@@ -119,6 +119,50 @@ def test_default_command_continues_after_search_error(service, test_mode):
     )
 
 
+@pytest.mark.parametrize("test_mode", [False, True])
+@pytest.mark.parametrize("title", ["Beethoven: Piano Concerto No.5", "Beethoven: Symphony No. 5"])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_default_command_keeps_distinct_recordings_of_same_work(
+    service, test_mode, title, duplicate
+):
+    artists = [
+        "Maurizio Pollini",
+        "Arturo Benedetti Michelangeli",
+        "Vladimir Ashkenazy",
+        "Daniel Barenboim",
+        "Emil Gilels",
+    ]
+    recommendations = [Recommendation(artist, title) for artist in artists]
+    results = [
+        SearchResult(index, artist, title, "2020-01-01", 3)
+        for index, artist in enumerate(artists, start=1)
+    ]
+    if duplicate:
+        results[-1] = results[0]
+    service._get_ai_recommendations.return_value = recommendations
+    service.search_service.find_best_match = Mock(side_effect=results)
+    expected_count = 4 if duplicate else 5
+
+    count = run_default(service, test_mode)
+
+    assert count == (None if test_mode else expected_count)
+    assert service.search_service.find_best_match.call_count == 5
+    for call in service.search_service.find_best_match.call_args_list:
+        assert call.kwargs["covered"] == set()
+        assert call.kwargs["allowed"] == set()
+    service.tidal_service.get_album_tracks_by_id.assert_not_called()
+    service.ai_client.make_request.assert_not_called()
+    explained = service._generate_explanation.call_args.args[2]
+    assert explained == recommendations[:expected_count]
+    if test_mode:
+        service.tidal_service.add_album_to_queue.assert_not_called()
+        service.display_service.display_test_summary.assert_called_once_with(expected_count, 5)
+    else:
+        assert [
+            call.args[0] for call in service.tidal_service.add_album_to_queue.call_args_list
+        ] == list(range(1, expected_count + 1))
+
+
 def test_default_command_does_not_explain_failed_queue_additions(service):
     service._get_ai_recommendations.return_value = [Recommendation("Artist", "Album")]
     service.search_service.find_best_match = Mock(

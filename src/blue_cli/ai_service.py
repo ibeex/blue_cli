@@ -913,11 +913,10 @@ class AIRecommendationService:
 
         self.display_service.display_recommendations(recommendations)
         context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
-        added = self._process_prompt_recommendations(recommendations, context)
+        added = self._process_prompt_recommendations(recommendations, context, work_coverage=False)
         added_count = len(added)
 
         self.display_service.display_final_success(added_count)
-        self._display_work_coverage(recommendations, added)
 
         if added:
             self._generate_explanation(current_artist_clean, current_album_clean, added)
@@ -1001,12 +1000,10 @@ class AIRecommendationService:
 
         self.display_service.display_recommendations(recommendations)
         context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
-        found = self._process_prompt_recommendations(recommendations, context, test_mode=True)
-
-        if self._display_work_coverage(recommendations, found):
-            rprint("[dim]Run without --test to actually add albums to queue[/]")
-        else:
-            self.display_service.display_test_summary(len(found), len(recommendations))
+        found = self._process_prompt_recommendations(
+            recommendations, context, test_mode=True, work_coverage=False
+        )
+        self.display_service.display_test_summary(len(found), len(recommendations))
 
         if found:
             self._generate_explanation(current_artist_clean, current_album_clean, found)
@@ -1134,23 +1131,34 @@ class AIRecommendationService:
         return None
 
     def _process_prompt_recommendations(
-        self, recommendations: list[Recommendation], text_prompt: str, test_mode: bool = False
+        self,
+        recommendations: list[Recommendation],
+        text_prompt: str,
+        test_mode: bool = False,
+        *,
+        work_coverage: bool = True,
     ) -> list[Recommendation]:
         aliases: CatalogueAliases = {}
         targets = set().union(
             *(work_keys(rec.work or rec.album, aliases=aliases) for rec in recommendations)
         )
         targets = {aliases.get(key, key) for key in targets}
-        if targets:
+        if targets and work_coverage:
             return self._process_classical_works(
                 recommendations, text_prompt, targets, aliases, test_mode
             )
         resolved: list[Recommendation] = []
         seen_ids: set[int] = set()
         covered: set[tuple[str, int]] = set()
-        allowed = set().union(*(self.search_service.coverage_keys(rec) for rec in recommendations))
+        allowed = (
+            set().union(*(self.search_service.coverage_keys(rec) for rec in recommendations))
+            if work_coverage
+            else set()
+        )
         for recommendation in recommendations:
-            requested = self.search_service.coverage_keys(recommendation)
+            requested = (
+                self.search_service.coverage_keys(recommendation) if work_coverage else set()
+            )
             if requested and requested <= covered:
                 rprint(
                     f"[dim]Already covered by a selected album: {recommendation.work or recommendation.album}[/]"
@@ -1173,7 +1181,8 @@ class AIRecommendationService:
                         continue
                     self.display_service.display_search_result(result)
                 seen_ids.add(result.id)
-                covered.update(self.search_service.coverage_keys(recommendation, result.title))
+                if work_coverage:
+                    covered.update(self.search_service.coverage_keys(recommendation, result.title))
                 resolved.append(Recommendation(result.artist, result.title, recommendation.work))
             except SearchError as error:
                 self.display_service.display_search_error(str(error))
