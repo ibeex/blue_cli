@@ -234,7 +234,8 @@ def test_clarification_replacement_is_checked_against_actual_tracks(service):
         AIResponse('{"candidate_id": "2"}', True),
     ]
     actual = {
-        1: tracks(1, ["Beethoven: Piano Concerto No. 1", "Piano Concerto in C minor, Op. 37"]),
+        # The title claims No. 3, but the real tracks only hold Nos. 1 and 2.
+        1: tracks(1, ["Beethoven: Piano Concerto No. 1", "Beethoven: Piano Concerto No. 2"]),
         2: tracks(2, ["Piano Concerto in C minor, Op. 37"]),
     }
     service.tidal_service.get_album_tracks_by_id.side_effect = actual.__getitem__
@@ -290,9 +291,10 @@ def test_explicit_multiple_interpretations_are_not_suppressed(service):
 
 def test_incomplete_track_metadata_cannot_mutate_queue(service):
     work = "Mozart: Piano Concerto No. 21"
-    catalogue(service, [(1, work, [work])])
+    # The listing claims 30 tracks; the endpoint returns only 5, far beyond tolerable drift.
+    catalogue(service, [(1, work, [work] * 10)])
     service.tidal_service.get_album_tracks_by_id.side_effect = None
-    service.tidal_service.get_album_tracks_by_id.return_value = tracks(1, [work])[:2]
+    service.tidal_service.get_album_tracks_by_id.return_value = tracks(1, [work])[:5]
     assert (
         service._process_prompt_recommendations(
             [Recommendation("Artist", work, work)], "add concerto"
@@ -301,3 +303,65 @@ def test_incomplete_track_metadata_cannot_mutate_queue(service):
     )
     service.tidal_service.add_album_to_queue.assert_not_called()
     service.tidal_service.add_song_to_queue.assert_not_called()
+
+
+def test_modest_track_count_drift_is_tolerated(service):
+    work = "Mozart: Piano Concerto No. 21"
+    # Real listings can disagree with the track endpoint by a few tracks.
+    catalogue(service, [(1, work, [work] * 10)])
+    service.tidal_service.get_album_tracks_by_id.side_effect = None
+    service.tidal_service.get_album_tracks_by_id.return_value = tracks(1, [work] * 10)[:26]
+    assert (
+        len(
+            service._process_prompt_recommendations(
+                [Recommendation("Artist", work, work)], "add concerto"
+            )
+        )
+        == 1
+    )
+    service.tidal_service.add_album_to_queue.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ("give me 10 best albums with russian classical composers", False),
+        ("give me the 3 best rock albums", False),
+        ("some relaxing pop music", False),
+        ("give me first 4 symphonies by Beethoven", True),
+        ("all five concertos", True),
+        ("both concertos", True),
+        ("give me 4 symphonies", True),
+        ("Symphonies Nos. 1 & 2", True),
+        ("Beethoven Symphonies 1-4", True),
+        ("compare different recordings of the third concerto", False),
+        ("Beethoven Symphony No. 5 Op. 67", False),
+        ("Tchaikovsky Symphony No. 6 Op. 74", False),
+    ],
+)
+def test_wants_work_set_detects_enumerated_requests(prompt, expected):
+    from blue_cli.work_identity import wants_work_set
+
+    assert wants_work_set(prompt) is expected
+
+
+@pytest.mark.parametrize("prompt", ["10 best classical albums", "Borodin String Quartet No. 2"])
+def test_fuzzy_request_accepts_coupled_album_with_extra_works(service, prompt):
+    work = "Borodin: String Quartet No. 2"
+    catalogue(
+        service,
+        [
+            (
+                1,
+                "Borodin: String Quartets Nos. 1 & 2",
+                ["Borodin: String Quartet No. 1", "Borodin: String Quartet No. 2"],
+            )
+        ],
+    )
+
+    resolved = service._process_prompt_recommendations(
+        [Recommendation("Artist", work, work)], prompt
+    )
+
+    assert len(resolved) == 1
+    service.tidal_service.add_album_to_queue.assert_called_once_with(1)

@@ -85,6 +85,33 @@ def work_keys(
     return keys
 
 
+_ORDINALS = (
+    r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth"
+    r"|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th"
+)
+_QUANTITIES = r"\d+|one|two|three|four|five|six|seven|eight|nine|ten"
+_WORK_NOUNS = (
+    r"symphon\w*|concert\w*|sonat\w*|quartet\w*|trio\w*|suite\w*|opera\w*|ballet\w*"
+    r"|oratorio\w*|requiem\w*|mass\w*|cantata\w*|prelude\w*|etude\w*|nocturne\w*"
+    r"|waltz\w*|polonaise\w*|mazurka\w*|rhapsod\w*|overture\w*|fugue\w*"
+)
+
+
+def wants_work_set(prompt: str) -> bool:
+    """True when the request enumerates a set of works, not a single named work."""
+    return bool(
+        re.search(
+            r"\b(?:all|both|complete|entire|every)\b"
+            rf"|\b(?:{_ORDINALS})\s+(?:{_QUANTITIES})\b"
+            rf"|\b(?:{_QUANTITIES})\s+(?:{_WORK_NOUNS})\b"
+            r"|\b\d+\s*[-\u2013]\s*\d+"
+            r"|\b\d+\s*(?:&|and|,)\s*\d+",
+            prompt,
+            re.IGNORECASE,
+        )
+    )
+
+
 def wants_multiple_recordings(prompt: str) -> bool:
     return bool(
         re.search(

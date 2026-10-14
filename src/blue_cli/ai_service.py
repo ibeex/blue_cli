@@ -9,16 +9,70 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from functools import cached_property
 from textwrap import dedent
-from typing import Protocol
+from typing import Any, Protocol
 
 import openai
 
 from .config import get_ai_model, get_base_url, get_host, get_openai_key, get_port
 from .console import console
 from .tidal_service import TidalService
-from .work_identity import CatalogueAliases, WorkKey, wants_multiple_recordings, work_keys
+from .work_identity import (
+    CatalogueAliases,
+    WorkKey,
+    wants_multiple_recordings,
+    wants_work_set,
+    work_keys,
+)
 
 rprint = console.print
+
+# Tidal's album listing and its track endpoint can disagree by a few tracks.
+TRACK_COUNT_DRIFT_RATIO = 0.2
+MIN_TRACK_COUNT_DRIFT = 2
+
+
+def extract_json(payload: str | None) -> Any | None:
+    """Parse the first JSON value in a model response, tolerating fences and prose."""
+    if not payload:
+        return None
+    text = payload.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, count=1)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    for start, char in enumerate(text):
+        if char not in "{[":
+            continue
+        opener = char
+        closer = "}" if opener == "{" else "]"
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(text)):
+            current = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif current == "\\":
+                    escaped = True
+                elif current == '"':
+                    in_string = False
+                continue
+            if current == '"':
+                in_string = True
+            elif current == opener:
+                depth += 1
+            elif current == closer:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : index + 1])
+                    except json.JSONDecodeError:
+                        break
+    return None
 
 
 class ResponseType(StrEnum):
@@ -140,9 +194,9 @@ class AlbumOnlySearchStrategy:
     """Search using album name only."""
 
     def search(self, search_query: SearchQuery, tidal_service: TidalService) -> list[dict]:
-        print(f"Trying album name only: '{search_query.album}'")
+        rprint(f"Trying album name only: '{search_query.album}'")
         albums = tidal_service.search_albums(search_query.album_only_query)
-        print(f"Album-only search results: {len(albums)} albums found")
+        rprint(f"Album-only search results: {len(albums)} albums found")
         return albums
 
     def get_description(self, search_query: SearchQuery) -> str:
@@ -155,7 +209,7 @@ class ArtistVariationSearchStrategy:
 
     def search(self, search_query: SearchQuery, tidal_service: TidalService) -> list[dict]:
         for variant_query in search_query.artist_variation_queries():
-            print(f"Trying artist variation: '{variant_query}'")
+            rprint(f"Trying artist variation: '{variant_query}'")
             albums = tidal_service.search_albums(variant_query)
             if albums:
                 return albums
@@ -400,17 +454,10 @@ class RecommendationParser:
     def parse_recommendations(recommendations: str) -> list[Recommendation]:
         """Parse AI recommendations into list of Recommendation objects."""
         payload = recommendations.strip()
-        if payload.startswith("```"):
-            payload = re.sub(r"^```(?:json)?\s*|\s*```$", "", payload)
-        try:
-            data = json.loads(payload)
-        except json.JSONDecodeError:
-            data = None
-        else:
+        data = extract_json(payload)
+        if isinstance(data, (dict, list)):
             if isinstance(data, dict):
                 data = [data]
-            if not isinstance(data, list):
-                return []
             parsed = []
             for item in data:
                 if not isinstance(item, dict):
@@ -485,7 +532,9 @@ class AlbumSearchService:
             for album in albums:
                 result = self._create_search_result(album)
                 collected.setdefault(result.id, result)
-            best = self._select_best_match(albums, recommendation.artist, recommendation.album)
+            best = self._select_best_match(
+                albums, recommendation.artist, recommendation.album, recommendation.work
+            )
             return self._create_search_result(best) if best is not None else None
 
         try:
@@ -586,9 +635,22 @@ class AlbumSearchService:
             return False
         expected = cls.coverage_keys(recommendation)
         if expected:
-            return bool(expected & cls.coverage_keys(recommendation, title))
+            return cls.coverage_overlap(expected, cls.coverage_keys(recommendation, title))
         numbers = set(cls.symphony_numbers(title))
         return bool(numbers) and bool(numbers & set(requested))
+
+    @staticmethod
+    def coverage_overlap(left: set[tuple[str, int]], right: set[tuple[str, int]]) -> bool:
+        """Match coverage keys tolerating composer transliteration variants."""
+        return any(
+            left_number == right_number
+            and (
+                left_composer == right_composer
+                or SequenceMatcher(None, left_composer, right_composer).ratio() >= 0.85
+            )
+            for left_composer, left_number in left
+            for right_composer, right_number in right
+        )
 
     @staticmethod
     def _fallback_queries(recommendation: Recommendation) -> list[str]:
@@ -629,7 +691,7 @@ class AlbumSearchService:
         return cls.normalize_name(cls._strip_remaster_suffix(title))
 
     def _select_best_match(
-        self, albums: list[dict], target_artist: str, target_album: str
+        self, albums: list[dict], target_artist: str, target_album: str, target_work: str = ""
     ) -> dict | None:
         # Prefer the requested release exactly before accepting a remastered edition.
         for strip_remaster in (False, True):
@@ -653,7 +715,46 @@ class AlbumSearchService:
                     for album in title_matches:
                         if self.normalize_name(credit) == self.normalize_name(album["artist"]):
                             return album
+        # Classical titles add key, opus, nickname or coupling text that exact matching rejects.
+        if target_work:
+            work_matches = [
+                album for album in albums if self.title_contains_work(target_work, album["title"])
+            ]
+            match = self._find_best_artist_match(work_matches, target_artist)
+            if match is not None:
+                return match
         return None
+
+    @classmethod
+    def title_contains_work(cls, work: str, title: str) -> bool:
+        """Whether an album title contains the requested composition."""
+        requested = work_keys(work)
+        if requested:
+            return cls.work_keys_overlap(requested, work_keys(title))
+        phrase = cls.work_phrase(work)
+        return bool(phrase) and phrase in cls.normalize_album_title(title)
+
+    @staticmethod
+    def work_keys_overlap(left: set[WorkKey], right: set[WorkKey]) -> bool:
+        """Match work identities tolerating composer transliteration variants."""
+        for left_composer, left_kind, left_id in left:
+            for right_composer, right_kind, right_id in right:
+                if left_kind != right_kind or left_id != right_id:
+                    continue
+                if (
+                    left_composer == right_composer
+                    or SequenceMatcher(None, left_composer, right_composer).ratio() >= 0.85
+                ):
+                    return True
+        return False
+
+    @classmethod
+    def work_phrase(cls, work: str) -> str:
+        """Normalized work title without catalogue metadata, for named works."""
+        stripped = re.sub(
+            r"\b(?:op|bwv|k|kv|d|hwv|rv)\.?\s*\d+(?:\s*/\s*\d+)?", " ", work, flags=re.IGNORECASE
+        )
+        return cls.normalize_name(stripped)
 
     def _create_search_result(self, album: dict) -> SearchResult:
         """Create SearchResult from album data."""
@@ -1077,13 +1178,7 @@ class AIRecommendationService:
             if not response.success:
                 self._handle_ai_error(response.error_message)
                 return None
-            payload = (response.content or "null").strip()
-            if payload.startswith("```"):
-                payload = re.sub(r"^```(?:json)?\s*|\s*```$", "", payload)
-            try:
-                selection = json.loads(payload)
-            except json.JSONDecodeError:
-                selection = None
+            selection = extract_json(response.content)
             if isinstance(selection, dict) and "candidate_id" in selection:
                 selected_id = selection["candidate_id"]
                 if isinstance(selected_id, (str, int)) and not isinstance(selected_id, bool):
@@ -1213,7 +1308,7 @@ class AIRecommendationService:
         """).strip()
         response = self.ai_client.make_request(prompt, ResponseType.CLARIFICATION)
         try:
-            assignments = json.loads(response.content or "null") if response.success else None
+            assignments = extract_json(response.content) if response.success else None
             if not isinstance(assignments, list) or len(assignments) != len(tracks):
                 raise ValueError("Incomplete track identification")
             identified: list[set[WorkKey]] = []
@@ -1245,6 +1340,8 @@ class AIRecommendationService:
     ) -> list[Recommendation]:
         covered: set[WorkKey] = set()
         multiple_recordings = wants_multiple_recordings(text_prompt)
+        # Strict set planning only applies when the user enumerated specific works.
+        strict_request = wants_work_set(text_prompt)
         plan: list[Recommendation] = []
         albums: list[SearchResult] = []
         for recommendation in recommendations:
@@ -1266,6 +1363,11 @@ class AIRecommendationService:
                         r"\b(highlights|excerpts|abridged)\b", result.title, re.IGNORECASE
                     ):
                         raise SearchError(f"Release may contain incomplete works: {result.title}")
+                    if not requested:
+                        # Works outside recognised catalogue forms (ballets, operas, tone poems,
+                        # ...) cannot be verified from tracks; accept the matched release.
+                        validated[result.id] = set()
+                        return True
                     try:
                         tracks = self.tidal_service.get_album_tracks_by_id(result.id)
                     except Exception as error:
@@ -1275,15 +1377,27 @@ class AIRecommendationService:
                     if (
                         not isinstance(tracks, list)
                         or not tracks
-                        or len(tracks) != int(result.tracks)
                         or any(not isinstance(track, dict) for track in tracks)
                     ):
                         raise SearchError(
                             f"Cannot verify complete track contents of {result.title}"
                         )
+                    listed_tracks = int(result.tracks)
+                    drift = abs(len(tracks) - listed_tracks)
+                    if listed_tracks and drift > max(
+                        MIN_TRACK_COUNT_DRIFT, int(listed_tracks * TRACK_COUNT_DRIFT_RATIO)
+                    ):
+                        raise SearchError(
+                            f"Cannot verify complete track contents of {result.title}"
+                        )
                     album_keys = work_keys(result.title, aliases=aliases)
-                    composers = {composer for composer, _, _ in album_keys}
-                    kinds = {kind for _, kind, _ in album_keys}
+                    # Single-composer albums often omit the composer from the title.
+                    composers = {composer for composer, _, _ in album_keys} or {
+                        composer for composer, _, _ in requested
+                    }
+                    kinds = {kind for _, kind, _ in album_keys} or {
+                        kind for _, kind, _ in requested
+                    }
                     composer = next(iter(composers)) if len(composers) == 1 else ""
                     kind = next(iter(kinds)) if len(kinds) == 1 else ""
                     identities = [
@@ -1293,14 +1407,27 @@ class AIRecommendationService:
                     if any(len(keys) != 1 for keys in identities):
                         identities = self._clarify_track_works(result, tracks, identities, aliases)
                     works = set().union(*identities)
-                    if not requested <= works:
+                    if not all(
+                        self.search_service.work_keys_overlap({key}, works) for key in requested
+                    ):
                         raise SearchError(
                             f"Album does not contain the requested work: {result.title}"
                         )
-                    if not works <= targets:
-                        raise SearchError(f"Album contains unrequested works: {result.title}")
-                    if not multiple_recordings and works & covered:
-                        raise SearchError(f"Album repeats already-selected works: {result.title}")
+                    if strict_request:
+                        if not all(
+                            any(
+                                self.search_service.work_keys_overlap({work}, {key})
+                                for key in targets
+                            )
+                            for work in works
+                        ):
+                            raise SearchError(f"Album contains unrequested works: {result.title}")
+                        if not multiple_recordings and self.search_service.work_keys_overlap(
+                            works, covered
+                        ):
+                            raise SearchError(
+                                f"Album repeats already-selected works: {result.title}"
+                            )
                     validated[result.id] = works
                     return True
                 except (AIServiceError, TypeError, ValueError) as error:
@@ -1326,7 +1453,11 @@ class AIRecommendationService:
             if result is None:
                 continue
             works = validated[result.id]
-            covered.update(works)
+            covered.update(
+                target
+                for target in targets
+                if self.search_service.work_keys_overlap(works, {target})
+            )
             selection = "; ".join(
                 f"{composer.title()}: {kind.title()} "
                 f"{'No. ' + identifier if identifier.isdigit() else identifier}"
@@ -1339,11 +1470,16 @@ class AIRecommendationService:
                 f"{composer} {kind} {identifier}"
                 for composer, kind, identifier in sorted(targets - covered)
             )
+            if wants_work_set(text_prompt):
+                rprint(
+                    f"[yellow]Unable to find whole albums with complete, non-overlapping work "
+                    f"coverage; missing {missing}. Queue unchanged.[/]"
+                )
+                return []
             rprint(
-                f"[yellow]Unable to find whole albums with complete, non-overlapping work coverage; "
-                f"missing {missing}. Queue unchanged.[/]"
+                f"[yellow]Partial work coverage; missing {missing}. "
+                "Queuing the albums that were found.[/]"
             )
-            return []
         resolved: list[Recommendation] = []
         for result, actual in zip(albums, plan, strict=True):
             try:

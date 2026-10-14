@@ -181,12 +181,13 @@ def test_beethoven_catalogue_variants_are_resolved_using_real_candidates(service
         4,
     ]
     calls = service.ai_client.make_request.call_args_list
-    assert len(calls) == 3
-    for number, call in enumerate(calls[1:], start=1):
-        assert f"Beethoven Symphony No. {number}" in call.args[0]
-        assert titles[number - 1] in call.args[0]
-        assert '"id": "99"' not in call.args[0]
-        assert call.args[1] == ResponseType.CLARIFICATION
+    # No. 2, 3 and 4 resolve from catalogue metadata; only No. 1 needs clarification.
+    assert len(calls) == 2
+    clarification = calls[1]
+    assert "Beethoven Symphony No. 1" in clarification.args[0]
+    assert titles[0] in clarification.args[0]
+    assert '"id": "99"' not in clarification.args[0]
+    assert clarification.args[1] == ResponseType.CLARIFICATION
 
 
 @pytest.mark.parametrize("selected_id", ["999", True, None, [1]])
@@ -214,6 +215,100 @@ def test_candidate_selection_accepts_json_fences_in_test_mode(service):
 
     assert resolved == [Recommendation("Recording Artist", "Correct Title")]
     service.tidal_service.add_album_to_queue.assert_not_called()
+
+
+def test_candidate_selection_recovers_json_embedded_in_prose(service):
+    service.search_service.find_best_match = Mock(return_value=None)
+    service.search_service.candidates = [album_result()]
+    service.ai_client.make_request.return_value = AIResponse(
+        'I recommend the first one: {"candidate_id": "1"} - enjoy!', True
+    )
+
+    resolved = service._process_prompt_recommendations(
+        [Recommendation("Artist", "Album")], "music", test_mode=True
+    )
+
+    assert resolved == [Recommendation("Recording Artist", "Correct Title")]
+
+
+def test_composer_transliteration_resolves_without_clarification(service):
+    recommendation = Recommendation(
+        "Sviatoslav Richter",
+        "Rachmaninov: Piano Concerto No. 2",
+        "Rachmaninoff Piano Concerto No. 2 Op. 18",
+    )
+    service.tidal_service.search_albums.return_value = [
+        {
+            "id": "5",
+            "artist": "Sviatoslav Richter",
+            "title": "Rachmaninov: Piano Concerto No. 2, Op. 18",
+            "date": "2020-01-01",
+            "tracks": "3",
+        }
+    ]
+
+    result = service.search_service.find_best_match(recommendation)
+
+    assert result is not None and result.id == 5
+    service.ai_client.make_request.assert_not_called()
+
+
+def test_unverifiable_work_skips_track_validation_in_mixed_request(service):
+    recognized = Recommendation(
+        "Artist", "Beethoven: Symphony No. 1", "Beethoven Symphony No. 1 Op. 21"
+    )
+    ballet = Recommendation(
+        "Artist", "Stravinsky: The Rite of Spring", "Stravinsky The Rite of Spring"
+    )
+    service.search_service.find_best_match = Mock(
+        side_effect=[
+            album_result(1, "Beethoven: Symphony No. 1"),
+            album_result(2, "Stravinsky: The Rite of Spring"),
+        ]
+    )
+    service.tidal_service.get_album_tracks_by_id.return_value = [
+        {"id": f"Tidal:{index}", "title": "Symphony No. 1: Movement"} for index in range(4)
+    ]
+
+    resolved = service._process_prompt_recommendations(
+        [recognized, ballet], "add these", test_mode=True
+    )
+
+    assert len(resolved) == 2
+    # Only the recognised symphony needs its tracks read; the ballet is accepted by title.
+    service.tidal_service.get_album_tracks_by_id.assert_called_once_with(1)
+
+
+def test_fuzzy_request_queues_partial_coverage(service, capsys):
+    one = Recommendation("Artist", "Brahms: Piano Concerto No. 1", "Brahms Piano Concerto No. 1")
+    two = Recommendation("Artist", "Brahms: Piano Concerto No. 2", "Brahms Piano Concerto No. 2")
+    service.search_service.find_best_match = Mock(
+        side_effect=[album_result(1, "Brahms: Piano Concerto No. 1"), None]
+    )
+    service.ai_client.make_request.return_value = response(None)
+    service.tidal_service.get_album_tracks_by_id.return_value = [
+        {"id": f"Tidal:{index}", "title": "Piano Concerto No. 1: Movement"} for index in range(4)
+    ]
+
+    resolved = service._process_prompt_recommendations(
+        [one, two], "10 best romantic albums", test_mode=True
+    )
+
+    assert len(resolved) == 1
+    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+    assert "Partial work coverage" in output
+
+
+def test_extract_json_recovers_values_from_prose():
+    from blue_cli.ai_service import extract_json
+
+    assert extract_json('Here:\n```json\n{"candidate_id": "1"}\n```\nDone') == {"candidate_id": "1"}
+    assert extract_json('Use [{"artist": "A", "album": "B"}] now') == [
+        {"artist": "A", "album": "B"}
+    ]
+    assert extract_json(None) is None
+    assert extract_json("") is None
+    assert extract_json("no json here") is None
 
 
 def test_broader_search_uses_requested_work_and_retains_candidates(service):
