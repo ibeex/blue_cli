@@ -4,6 +4,8 @@ import json
 import re
 from unittest.mock import Mock, patch
 
+import httpx
+import openai
 import pytest
 from click.testing import CliRunner
 
@@ -835,6 +837,7 @@ def test_failed_album_does_not_prevent_later_album_from_being_queued(service):
     [
         ('[{"artist": " A ", "album": " B (Live) "}]', [Recommendation("A", "B (Live)")]),
         ('```json\n[{"artist": "A", "album": "B"}]\n```', [Recommendation("A", "B")]),
+        ('{"recommendations": [{"artist": "A", "album": "B"}]}', [Recommendation("A", "B")]),
         ('[{"artist": null, "album": "B"}, {"artist": "A"}]', []),
         (
             "1. Jay-Jay Johanson - Album (Live)",
@@ -845,3 +848,53 @@ def test_failed_album_does_not_prevent_later_album_from_being_queued(service):
 )
 def test_recommendation_parser_handles_structured_and_legacy_responses(content, expected):
     assert RecommendationParser.parse_recommendations(content) == expected
+
+
+def test_text_prompt_retries_when_model_rambles_instead_of_answer(service):
+    service.ai_client.make_request.side_effect = [
+        AIResponse("Let me reason about available recordings...", True),
+        response([{"artist": "Recording Artist", "album": "Album"}]),
+    ]
+    service.search_service.find_best_match = Mock(return_value=album_result())
+
+    assert service.get_prompt_recommendations_and_enqueue("one album") == 1
+    assert service.ai_client.make_request.call_count == 2
+    assert service.ai_client.make_request.call_args_list[0].args[1] == ResponseType.RECOMMENDATION
+    assert service.ai_client.make_request.call_args_list[0].kwargs == {"json_mode": True}
+
+
+def test_text_prompt_reports_when_ai_returns_no_recommendations(service, capsys):
+    service.ai_client.make_request.return_value = AIResponse("just prose, no list", True)
+
+    assert service.get_prompt_recommendations_and_enqueue("music") == 0
+    assert service.ai_client.make_request.call_count == 3
+    service.tidal_service.add_album_to_queue.assert_not_called()
+    output = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
+    assert "did not return usable recommendations" in output
+
+
+def test_json_mode_falls_back_when_provider_rejects_response_format():
+    from blue_cli.ai_service import AIClient
+
+    completion = Mock(choices=[Mock(message=Mock(content='[{"artist":"A","album":"B"}]'))])
+    request = httpx.Request("POST", "https://example.com/v1/chat/completions")
+    mock_client = Mock()
+    mock_client.chat.completions.create.side_effect = [
+        openai.BadRequestError(
+            "unsupported", response=httpx.Response(400, request=request), body=None
+        ),
+        completion,
+    ]
+    client = AIClient()
+
+    with (
+        patch.object(AIClient, "_get_client", return_value=mock_client),
+        patch.object(AIClient, "_get_model", return_value="test-model"),
+    ):
+        result = client.make_request("prompt", ResponseType.RECOMMENDATION, json_mode=True)
+
+    assert result.success
+    calls = mock_client.chat.completions.create.call_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["response_format"] == {"type": "json_object"}
+    assert "response_format" not in calls[1].kwargs

@@ -12,6 +12,7 @@ from textwrap import dedent
 from typing import Any, Protocol
 
 import openai
+from openai.types.chat import ChatCompletion
 
 from .config import get_ai_model, get_base_url, get_host, get_openai_key, get_port
 from .console import console
@@ -133,6 +134,7 @@ class AIServiceConfig:
     max_completion_tokens: int = 8000
     recommendation_count: int = 5
     max_clarification_attempts: int = 2
+    max_recommendation_attempts: int = 3
     error_key_message: str = (
         "API key not found. Please set OPENAI_API_KEY environment variable "
         "or add 'api_key' to ~/.config/blue_cli/keys.json (supports OpenAI and OpenRouter APIs)"
@@ -419,18 +421,36 @@ class AIClient:
         """Resolve the model to use for requests."""
         return self.model or get_ai_model()
 
-    def make_request(self, prompt: str, response_type: ResponseType) -> AIResponse:
+    def _create_completion(
+        self, client: openai.OpenAI, prompt: str, json_mode: bool
+    ) -> ChatCompletion:
+        if json_mode:
+            try:
+                return client.chat.completions.create(
+                    model=self._get_model(),
+                    messages=[{"role": "user", "content": prompt}],
+                    max_completion_tokens=self.config.max_completion_tokens,
+                    response_format={"type": "json_object"},
+                )
+            except openai.BadRequestError:
+                # Providers without response_format support reject the parameter.
+                pass
+        return client.chat.completions.create(
+            model=self._get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=self.config.max_completion_tokens,
+        )
+
+    def make_request(
+        self, prompt: str, response_type: ResponseType, *, json_mode: bool = False
+    ) -> AIResponse:
         """Make AI request with standardized error handling."""
         try:
             client = self._get_client()
             if self.verbose:
                 rprint(f"[dim]Prompt ({response_type.value}):[/]\n{prompt}\n")
 
-            response = client.chat.completions.create(
-                model=self._get_model(),
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=self.config.max_completion_tokens,
-            )
+            response = self._create_completion(client, prompt, json_mode)
 
             if response and response.choices and response.choices[0].message.content:
                 return AIResponse(content=response.choices[0].message.content.strip(), success=True)
@@ -455,6 +475,9 @@ class RecommendationParser:
         """Parse AI recommendations into list of Recommendation objects."""
         payload = recommendations.strip()
         data = extract_json(payload)
+        if isinstance(data, dict) and not {"artist", "album"} & data.keys():
+            # Tolerate providers that wrap the array, e.g. {"recommendations": [...]}.
+            data = next((value for value in data.values() if isinstance(value, list)), data)
         if isinstance(data, (dict, list)):
             if isinstance(data, dict):
                 data = [data]
@@ -946,14 +969,7 @@ class AIRecommendationService:
         """Get AI recommendations and parse them into structured data."""
         try:
             prompt = PromptTemplates.recommendation_prompt(artist, album)
-            response = self.ai_client.make_request(prompt, ResponseType.RECOMMENDATION)
-
-            if not response.success:
-                self._handle_ai_error(response.error_message)
-                return []
-
-            return self.parser.parse_recommendations(response.content or "")
-
+            return self._request_recommendations(prompt)
         except AIServiceError as e:
             rprint(f"[red]Error getting AI recommendations: {str(e)}[/]")
             return []
@@ -962,17 +978,33 @@ class AIRecommendationService:
         """Get AI recommendations based on text prompt and parse them into structured data."""
         try:
             prompt = PromptTemplates.text_prompt_recommendation(text_prompt)
-            response = self.ai_client.make_request(prompt, ResponseType.RECOMMENDATION)
-
-            if not response.success:
-                self._handle_ai_error(response.error_message)
-                return []
-
-            return self.parser.parse_recommendations(response.content or "")
-
+            return self._request_recommendations(prompt, json_mode=True)
         except AIServiceError as e:
             rprint(f"[red]Error getting AI recommendations: {str(e)}[/]")
             return []
+
+    def _request_recommendations(
+        self, prompt: str, *, json_mode: bool = False
+    ) -> list[Recommendation]:
+        """Request recommendations, retrying while the model returns no usable items."""
+        attempts = self.ai_client.config.max_recommendation_attempts
+        for attempt in range(attempts):
+            response = self.ai_client.make_request(
+                prompt, ResponseType.RECOMMENDATION, json_mode=json_mode
+            )
+            if not response.success:
+                self._handle_ai_error(response.error_message)
+                return []
+            recommendations = self.parser.parse_recommendations(response.content or "")
+            if recommendations:
+                return recommendations
+            if attempt + 1 < attempts:
+                rprint("[dim]AI returned no usable recommendations; retrying.[/]")
+        rprint(
+            "[yellow]AI did not return usable recommendations. "
+            "Try again or rephrase the request.[/]"
+        )
+        return []
 
     def _handle_ai_error(self, error_message: str | None) -> None:
         """Handle AI service errors with user-friendly messages."""
