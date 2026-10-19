@@ -265,7 +265,7 @@ def ai(blue: BlueSound, prompt, test, model, verbose):
             ai_service.get_prompt_recommendations_and_enqueue(prompt)
     else:
         # Use current playing song for recommendations
-        current_song = blue.curent_song_id()
+        current_song = blue.current_song_id()
         artist = current_song.artist
         album = current_song.album
 

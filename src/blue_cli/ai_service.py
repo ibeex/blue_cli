@@ -14,7 +14,14 @@ from typing import Any, Protocol
 import openai
 from openai.types.chat import ChatCompletion
 
-from .config import get_ai_model, get_base_url, get_host, get_openai_key, get_port
+from .config import (
+    get_ai_model,
+    get_base_url,
+    get_host,
+    get_max_completion_tokens,
+    get_openai_key,
+    get_port,
+)
 from .console import console
 from .tidal_service import TidalService
 from .work_identity import (
@@ -131,7 +138,7 @@ class SearchError(AIServiceError):
 class AIServiceConfig:
     """Configuration settings for AI service."""
 
-    max_completion_tokens: int = 8000
+    max_completion_tokens: int = field(default_factory=get_max_completion_tokens)
     recommendation_count: int = 5
     max_clarification_attempts: int = 2
     max_recommendation_attempts: int = 3
@@ -419,7 +426,11 @@ class AIClient:
 
     def _get_model(self) -> str:
         """Resolve the model to use for requests."""
-        return self.model or get_ai_model()
+        model = self.model or get_ai_model()
+        # Direct OpenAI endpoints use bare IDs; provider prefixes belong to routers.
+        if not get_base_url() and model.startswith("openai/"):
+            return model.removeprefix("openai/")
+        return model
 
     def _create_completion(
         self, client: openai.OpenAI, prompt: str, json_mode: bool
@@ -965,10 +976,9 @@ class AIRecommendationService:
 
         return clean_artist, clean_album
 
-    def _get_ai_recommendations(self, artist: str, album: str) -> list[Recommendation]:
-        """Get AI recommendations and parse them into structured data."""
+    def _get_ai_recommendations(self, prompt: str) -> list[Recommendation]:
+        """Get AI recommendations for the given prompt and parse them into structured data."""
         try:
-            prompt = PromptTemplates.recommendation_prompt(artist, album)
             return self._request_recommendations(prompt)
         except AIServiceError as e:
             rprint(f"[red]Error getting AI recommendations: {str(e)}[/]")
@@ -988,6 +998,13 @@ class AIRecommendationService:
     ) -> list[Recommendation]:
         """Request recommendations, retrying while the model returns no usable items."""
         attempts = self.ai_client.config.max_recommendation_attempts
+        base_prompt = prompt
+        correction = (
+            'Return only a JSON array of objects with nonempty "artist" and "album" strings, '
+            "with no prose or Markdown fences."
+            if json_mode
+            else 'Return only one "Band Name - Album Name" line per recommendation, with no prose.'
+        )
         for attempt in range(attempts):
             response = self.ai_client.make_request(
                 prompt, ResponseType.RECOMMENDATION, json_mode=json_mode
@@ -1000,6 +1017,7 @@ class AIRecommendationService:
                 return recommendations
             if attempt + 1 < attempts:
                 rprint("[dim]AI returned no usable recommendations; retrying.[/]")
+                prompt = f"{base_prompt}\n\nYour previous reply was unusable. {correction}"
         rprint(
             "[yellow]AI did not return usable recommendations. "
             "Try again or rephrase the request.[/]"
@@ -1040,12 +1058,12 @@ class AIRecommendationService:
             current_artist_clean, current_album_clean
         )
 
-        recommendations = self._get_ai_recommendations(current_artist_clean, current_album_clean)
+        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
+        recommendations = self._get_ai_recommendations(context)
         if not recommendations:
             return 0
 
         self.display_service.display_recommendations(recommendations)
-        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
         added = self._process_prompt_recommendations(recommendations, context, work_coverage=False)
         added_count = len(added)
 
@@ -1127,12 +1145,12 @@ class AIRecommendationService:
             current_artist_clean, current_album_clean, test_mode=True
         )
 
-        recommendations = self._get_ai_recommendations(current_artist_clean, current_album_clean)
+        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
+        recommendations = self._get_ai_recommendations(context)
         if not recommendations:
             return
 
         self.display_service.display_recommendations(recommendations)
-        context = PromptTemplates.recommendation_prompt(current_artist_clean, current_album_clean)
         found = self._process_prompt_recommendations(
             recommendations, context, test_mode=True, work_coverage=False
         )

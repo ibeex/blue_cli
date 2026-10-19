@@ -105,7 +105,7 @@ class BluesoundBaseClient:
         self._make_request(album_url)
 
     def next_album(self):
-        status = self.curent_song_id()
+        status = self.current_song_id()
         next_song_id = self.playlist_service.find_next_album_song_id(status.song_id)
         if next_song_id:
             self._make_request("Play", params={"id": next_song_id})
@@ -113,7 +113,7 @@ class BluesoundBaseClient:
     def show_queue(self):
         s = console.status("Getin queue...")
         s.start()
-        status = self.curent_song_id()
+        status = self.current_song_id()
         albums = self.playlist_service.get_album_blocks()
 
         # Get current song to retrieve album_id for matching
@@ -158,7 +158,7 @@ class BluesoundBaseClient:
         self._make_request("Clear", params={"id": 0})
         rprint("Queue cleaned up.")
 
-    def curent_song_id(self) -> Song:
+    def current_song_id(self) -> Song:
         r = self._make_request("Status")
         obj = self._parse_xml(r)
         s = jmespath.search("status.[song, album, artist, name, secs, totlen]", obj)
@@ -179,11 +179,11 @@ class BluesoundBaseClient:
 
     def cleanup(self):
         with Progress(console=console) as progress:
-            song = self.curent_song_id()
+            song = self.current_song_id()
             rprint(f"Queue played {song.song_id} songs.")
             task = progress.add_task(f"[green]Cleaning {song.song_id} ...", total=song.song_id)
             while not progress.finished:
-                song = self.curent_song_id()
+                song = self.current_song_id()
                 progress.update(task, advance=1, description=f"[green]Cleaning {song.song_id} ...")
                 if song.song_id == 0:
                     break

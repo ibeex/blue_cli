@@ -191,7 +191,7 @@ class UsbService(BluesoundBaseClient):
         s = console.status("Getin queue...")
         s.start()
         albums = self.playlist_service.get_formatted_queue_list()
-        status = self.curent_song_id()
+        status = self.current_song_id()
         s.stop()
         fzf = FzfPrompt(
             f'fzf --tiebreak=index --tmux 90%,80% --prompt="{status.song_id} {status.artist}> "'
@@ -208,7 +208,7 @@ class UsbService(BluesoundBaseClient):
         s = console.status("Getin queue...")
         s.start()
         playlist = self.playlist_service.get_playlist()
-        status = self.curent_song_id()
+        status = self.current_song_id()
         s.stop()
 
         if not playlist.songs:
@@ -243,7 +243,7 @@ class UsbService(BluesoundBaseClient):
 
     def next_album(self):
         """Skip to the next album"""
-        current_song = self.curent_song_id()
+        current_song = self.current_song_id()
         next_song_id = self.playlist_service.find_next_album_song_id(current_song.song_id)
         if next_song_id:
             self._make_request("Play", params={"id": next_song_id})

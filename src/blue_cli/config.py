@@ -11,6 +11,8 @@ __author__ = "IbeeX"
 
 MEDIA_LOCATION = "Library"
 AI_MODEL = "openai/gpt-5.1-chat"
+# Reasoning models count internal reasoning against this cap, so leave generous headroom.
+AI_MAX_COMPLETION_TOKENS = 16000
 
 home = Path.home()
 cache_path = home / ".cache" / "blue"
@@ -65,6 +67,18 @@ def get_ai_model() -> str:
     """Get AI model name from config file or default to AI_MODEL constant."""
     keys_data = _load_keys_config()
     return keys_data.get("model", AI_MODEL)
+
+
+def get_max_completion_tokens() -> int:
+    """Get max completion tokens from config file or a reasoning-friendly default."""
+    value = _load_keys_config().get("max_completion_tokens")
+    if isinstance(value, bool):
+        return AI_MAX_COMPLETION_TOKENS
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isdigit() and int(value) > 0:
+        return int(value)
+    return AI_MAX_COMPLETION_TOKENS
 
 
 def get_base_url() -> str | None:

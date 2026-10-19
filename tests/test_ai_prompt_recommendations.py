@@ -106,7 +106,7 @@ def test_ai_command_uses_selected_player_for_prompt_queries():
     ai_class.return_value.get_prompt_recommendations_test_mode.assert_called_once_with(
         "four albums"
     )
-    player_class.return_value.curent_song_id.assert_not_called()
+    player_class.return_value.current_song_id.assert_not_called()
 
 
 def test_empty_tidal_search_returns_without_exiting():
@@ -898,3 +898,40 @@ def test_json_mode_falls_back_when_provider_rejects_response_format():
     assert len(calls) == 2
     assert calls[0].kwargs["response_format"] == {"type": "json_object"}
     assert "response_format" not in calls[1].kwargs
+
+
+@pytest.mark.parametrize(
+    ("json_mode", "marker"),
+    [(True, "JSON array"), (False, "Band Name - Album Name")],
+)
+def test_recommendation_retry_instructs_model_on_expected_format(service, json_mode, marker):
+    second = (
+        response([{"artist": "Recording Artist", "album": "Album"}])
+        if json_mode
+        else AIResponse("Recording Artist - Album", True)
+    )
+    service.ai_client.make_request.side_effect = [AIResponse("prose only", True), second]
+
+    assert service._request_recommendations("prompt", json_mode=json_mode) == [
+        Recommendation("Recording Artist", "Album")
+    ]
+    first_prompt, second_prompt = (
+        call.args[0] for call in service.ai_client.make_request.call_args_list
+    )
+    assert first_prompt != second_prompt
+    assert "previous reply was unusable" in second_prompt
+    assert marker in second_prompt
+
+
+@pytest.mark.parametrize(
+    ("base_url", "model", "expected"),
+    [
+        (None, "openai/gpt-5.1-chat", "gpt-5.1-chat"),
+        ("https://openrouter.ai/api/v1", "openai/gpt-5.1-chat", "openai/gpt-5.1-chat"),
+        (None, "gpt-5.1-chat", "gpt-5.1-chat"),
+    ],
+)
+def test_model_prefix_normalized_for_direct_openai(service, base_url, model, expected):
+    service.ai_client.model = model
+    with patch("blue_cli.ai_service.get_base_url", return_value=base_url):
+        assert service.ai_client._get_model() == expected
