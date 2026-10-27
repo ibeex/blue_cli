@@ -665,6 +665,62 @@ def test_prompt_uses_five_only_as_default():
     assert "Preserve any requested order" in prompt
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "give me 10 best classical albums",
+        "give me 10 best jazz albums",
+        "give me 10 best rock albums",
+        "give me 10 best pop albums",
+        "give me 10 best electronic albums",
+    ],
+)
+def test_prompt_adds_discovery_guidance_without_changing_user_query(query):
+    prompt = PromptTemplates.text_prompt_recommendation(query)
+    normalized = " ".join(prompt.split())
+
+    assert f"matching this user request:\n{query}\n" in prompt
+    assert '"Best" is not a single fixed ranked list' in normalized
+    assert "equally strong, less-obvious choices" in normalized
+    assert "Do not substitute obscurity for musical quality" in normalized
+    assert "Within the user's requested musical scope" in normalized
+    assert (
+        "For broad selections, include at most one album per primary artist, "
+        "unless the user requests otherwise" in normalized
+    )
+    guidance = normalized.split("Selection guidance", 1)[1]
+    assert "classical" not in guidance
+    assert "per composer" not in guidance
+    assert "Return only a JSON array" in normalized
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "give me Beethoven's first four symphonies",
+        "give me 3 recordings of Bach's Goldberg Variations",
+        "give me 5 albums by Miles Davis in chronological order",
+        "give me 3 albums by Daft Punk",
+        "give me 4 synth-pop albums from the 1980s",
+    ],
+)
+def test_prompt_prioritizes_explicit_requests_over_discovery_guidance(query):
+    prompt = PromptTemplates.text_prompt_recommendation(query)
+    normalized = " ".join(prompt.split())
+
+    assert f"matching this user request:\n{query}\n" in prompt
+    assert "Honor the user's requested quantity" in normalized
+    assert "Preserve any requested order" in normalized
+    assert (
+        "This guidance must not override specific requested genres, artists, composers, "
+        "albums, works, chronology, quantities, or other user constraints" in normalized
+    )
+    assert (
+        "Do not replace a specifically requested artist, album, or work merely for novelty"
+        in normalized
+    )
+
+
 def test_beethoven_first_four_are_queued_in_order_after_clarification(service):
     query = "give me first 4 syphonies by Beethoven"
     recommendations = [

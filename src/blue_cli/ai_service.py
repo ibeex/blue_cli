@@ -300,6 +300,20 @@ class PromptTemplates:
             - Return only a JSON array of objects with nonempty "artist" and "album" strings.
               For non-classical requests, the optional "work" field can be omitted.
               Do not include Markdown fences or explanations.
+
+            Selection guidance for open-ended music discovery requests such as "best albums":
+            - "Best" is not a single fixed ranked list. Choose a fresh, musically rewarding
+              selection from the broad pool of excellent albums, not just the most
+              frequently recommended releases.
+            - Within the user's requested musical scope, explore different artists, eras,
+              styles, scenes, instrumentation, and production approaches. Include both
+              established favorites and equally strong, less-obvious choices.
+              Do not substitute obscurity for musical quality.
+            - For broad selections, include at most one album per primary artist,
+              unless the user requests otherwise.
+            - This guidance must not override specific requested genres, artists, composers,
+              albums, works, chronology, quantities, or other user constraints.
+              Do not replace a specifically requested artist, album, or work merely for novelty.
         """).strip()
 
     @staticmethod
