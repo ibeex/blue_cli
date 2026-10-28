@@ -13,6 +13,10 @@ MEDIA_LOCATION = "Library"
 AI_MODEL = "openai/gpt-5.1-chat"
 # Reasoning models count internal reasoning against this cap, so leave generous headroom.
 AI_MAX_COMPLETION_TOKENS = 16000
+# "low" is the cheapest level providers honour; recommendations do not need deep thinking.
+AI_REASONING_EFFORT = "low"
+REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+REASONING_OFF_VALUES = frozenset({"", "none", "off", "false", "0"})
 
 home = Path.home()
 cache_path = home / ".cache" / "blue"
@@ -79,6 +83,17 @@ def get_max_completion_tokens() -> int:
     if isinstance(value, str) and value.isdigit() and int(value) > 0:
         return int(value)
     return AI_MAX_COMPLETION_TOKENS
+
+
+def get_reasoning_effort() -> str | None:
+    """Get reasoning effort from config file, or None to leave the provider default."""
+    value = _load_keys_config().get("reasoning_effort", AI_REASONING_EFFORT)
+    if not isinstance(value, str):
+        return AI_REASONING_EFFORT
+    normalized = value.strip().lower()
+    if normalized in REASONING_OFF_VALUES:
+        return None
+    return normalized if normalized in REASONING_EFFORTS else AI_REASONING_EFFORT
 
 
 def get_base_url() -> str | None:

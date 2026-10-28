@@ -21,6 +21,7 @@ from .config import (
     get_max_completion_tokens,
     get_openai_key,
     get_port,
+    get_reasoning_effort,
 )
 from .console import console
 from .tidal_service import TidalService
@@ -139,6 +140,7 @@ class AIServiceConfig:
     """Configuration settings for AI service."""
 
     max_completion_tokens: int = field(default_factory=get_max_completion_tokens)
+    reasoning_effort: str | None = field(default_factory=get_reasoning_effort)
     recommendation_count: int = 5
     max_clarification_attempts: int = 2
     max_recommendation_attempts: int = 3
@@ -449,22 +451,30 @@ class AIClient:
     def _create_completion(
         self, client: openai.OpenAI, prompt: str, json_mode: bool
     ) -> ChatCompletion:
+        """Send the completion, shedding optional parameters the provider rejects."""
+        optional: list[dict[str, Any]] = []
         if json_mode:
+            optional.append({"response_format": {"type": "json_object"}})
+        if self.config.reasoning_effort:
+            # OpenRouter/Google extension; not every compatible endpoint accepts it.
+            optional.append({"extra_body": {"reasoning": {"effort": self.config.reasoning_effort}}})
+
+        last_error: openai.BadRequestError | None = None
+        for kept in range(len(optional), -1, -1):
+            params = {
+                "model": self._get_model(),
+                "messages": [{"role": "user", "content": prompt}],
+                "max_completion_tokens": self.config.max_completion_tokens,
+            }
+            for extra in optional[:kept]:
+                params.update(extra)
             try:
-                return client.chat.completions.create(
-                    model=self._get_model(),
-                    messages=[{"role": "user", "content": prompt}],
-                    max_completion_tokens=self.config.max_completion_tokens,
-                    response_format={"type": "json_object"},
-                )
-            except openai.BadRequestError:
-                # Providers without response_format support reject the parameter.
-                pass
-        return client.chat.completions.create(
-            model=self._get_model(),
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=self.config.max_completion_tokens,
-        )
+                return client.chat.completions.create(**params)
+            except openai.BadRequestError as exc:
+                last_error = exc
+        if last_error is None:
+            raise AIServiceError("No completion request attempted")
+        raise last_error
 
     def make_request(
         self, prompt: str, response_type: ResponseType, *, json_mode: bool = False

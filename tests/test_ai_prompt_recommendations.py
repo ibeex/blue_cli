@@ -930,7 +930,7 @@ def test_text_prompt_reports_when_ai_returns_no_recommendations(service, capsys)
 
 
 def test_json_mode_falls_back_when_provider_rejects_response_format():
-    from blue_cli.ai_service import AIClient
+    from blue_cli.ai_service import AIClient, AIServiceConfig
 
     completion = Mock(choices=[Mock(message=Mock(content='[{"artist":"A","album":"B"}]'))])
     request = httpx.Request("POST", "https://example.com/v1/chat/completions")
@@ -941,7 +941,7 @@ def test_json_mode_falls_back_when_provider_rejects_response_format():
         ),
         completion,
     ]
-    client = AIClient()
+    client = AIClient(config=AIServiceConfig(reasoning_effort=None))
 
     with (
         patch.object(AIClient, "_get_client", return_value=mock_client),
@@ -991,3 +991,94 @@ def test_model_prefix_normalized_for_direct_openai(service, base_url, model, exp
     service.ai_client.model = model
     with patch("blue_cli.ai_service.get_base_url", return_value=base_url):
         assert service.ai_client._get_model() == expected
+
+
+def _completion(content='[{"artist":"A","album":"B"}]'):
+    return Mock(choices=[Mock(message=Mock(content=content))])
+
+
+def test_recommendation_requests_use_low_reasoning_effort():
+    from blue_cli.ai_service import AIClient, AIServiceConfig
+
+    mock_client = Mock()
+    mock_client.chat.completions.create.return_value = _completion()
+    client = AIClient(config=AIServiceConfig(reasoning_effort="low"))
+
+    with (
+        patch.object(AIClient, "_get_client", return_value=mock_client),
+        patch.object(AIClient, "_get_model", return_value="google/gemini-3.8-flash"),
+    ):
+        result = client.make_request("prompt", ResponseType.RECOMMENDATION, json_mode=True)
+
+    assert result.success
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert kwargs["extra_body"] == {"reasoning": {"effort": "low"}}
+    assert kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_reasoning_effort_omitted_when_disabled():
+    from blue_cli.ai_service import AIClient, AIServiceConfig
+
+    mock_client = Mock()
+    mock_client.chat.completions.create.return_value = _completion("Artist - Album")
+    client = AIClient(config=AIServiceConfig(reasoning_effort=None))
+
+    with (
+        patch.object(AIClient, "_get_client", return_value=mock_client),
+        patch.object(AIClient, "_get_model", return_value="test-model"),
+    ):
+        assert client.make_request("prompt", ResponseType.GENERAL_EXPLANATION).success
+
+    assert "extra_body" not in mock_client.chat.completions.create.call_args.kwargs
+
+
+def test_reasoning_effort_falls_back_when_provider_rejects_it():
+    from blue_cli.ai_service import AIClient, AIServiceConfig
+
+    request = httpx.Request("POST", "https://example.com/v1/chat/completions")
+    mock_client = Mock()
+    mock_client.chat.completions.create.side_effect = [
+        openai.BadRequestError(
+            "unsupported", response=httpx.Response(400, request=request), body=None
+        ),
+        _completion(),
+    ]
+    client = AIClient(config=AIServiceConfig(reasoning_effort="low"))
+
+    with (
+        patch.object(AIClient, "_get_client", return_value=mock_client),
+        patch.object(AIClient, "_get_model", return_value="gpt-5.1-chat"),
+    ):
+        result = client.make_request("prompt", ResponseType.RECOMMENDATION, json_mode=True)
+
+    assert result.success
+    calls = mock_client.chat.completions.create.call_args_list
+    assert len(calls) == 2
+    assert "extra_body" in calls[0].kwargs
+    assert "extra_body" not in calls[1].kwargs
+    assert calls[1].kwargs["response_format"] == {"type": "json_object"}
+
+
+def test_reasoning_effort_rejection_without_json_mode_falls_back_to_plain():
+    from blue_cli.ai_service import AIClient, AIServiceConfig
+
+    request = httpx.Request("POST", "https://example.com/v1/chat/completions")
+    mock_client = Mock()
+    mock_client.chat.completions.create.side_effect = [
+        openai.BadRequestError(
+            "unsupported", response=httpx.Response(400, request=request), body=None
+        ),
+        _completion("Artist - Album"),
+    ]
+    client = AIClient(config=AIServiceConfig(reasoning_effort="low"))
+
+    with (
+        patch.object(AIClient, "_get_client", return_value=mock_client),
+        patch.object(AIClient, "_get_model", return_value="gpt-5.1-chat"),
+    ):
+        assert client.make_request("prompt", ResponseType.GENERAL_EXPLANATION).success
+
+    calls = mock_client.chat.completions.create.call_args_list
+    assert len(calls) == 2
+    assert "extra_body" not in calls[1].kwargs
+    assert "response_format" not in calls[1].kwargs

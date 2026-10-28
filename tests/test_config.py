@@ -22,3 +22,23 @@ from blue_cli import config
 def test_max_completion_tokens_override(stored, expected):
     with patch.object(config, "_load_keys_config", return_value=stored):
         assert config.get_max_completion_tokens() == expected
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ({}, "low"),
+        ({"reasoning_effort": "high"}, "high"),
+        ({"reasoning_effort": " MINIMAL "}, "minimal"),
+        ({"reasoning_effort": "medium"}, "medium"),
+        ({"reasoning_effort": ""}, None),
+        ({"reasoning_effort": "off"}, None),
+        ({"reasoning_effort": "none"}, None),
+        ({"reasoning_effort": "extreme"}, "low"),
+        ({"reasoning_effort": 3}, "low"),
+        ({"reasoning_effort": True}, "low"),
+    ],
+)
+def test_reasoning_effort_override(stored, expected):
+    with patch.object(config, "_load_keys_config", return_value=stored):
+        assert config.get_reasoning_effort() == expected
