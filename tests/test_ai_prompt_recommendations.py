@@ -183,13 +183,9 @@ def test_beethoven_catalogue_variants_are_resolved_using_real_candidates(service
         4,
     ]
     calls = service.ai_client.make_request.call_args_list
-    # No. 2, 3 and 4 resolve from catalogue metadata; only No. 1 needs clarification.
-    assert len(calls) == 2
-    clarification = calls[1]
-    assert "Beethoven Symphony No. 1" in clarification.args[0]
-    assert titles[0] in clarification.args[0]
-    assert '"id": "99"' not in clarification.args[0]
-    assert clarification.args[1] == ResponseType.CLARIFICATION
+    # All four resolve from catalogue work metadata without an AI clarification round.
+    assert len(calls) == 1
+    assert calls[0].args[1] == ResponseType.RECOMMENDATION
 
 
 @pytest.mark.parametrize("selected_id", ["999", True, None, [1]])
@@ -330,11 +326,14 @@ def test_broader_search_uses_requested_work_and_retains_candidates(service):
         [candidate] if query == recommendation.work else []
     )
 
-    assert service.search_service.find_best_match(recommendation) is None
-    assert service.search_service.candidates[0].id == 1
+    assert service.search_service.find_best_match(recommendation) is not None
+    # The work-matched release is accepted without an AI clarification round.
+    assert service.ai_client.make_request.call_count == 0
     queries = [call.args[0] for call in service.tidal_service.search_albums.call_args_list]
     assert recommendation.work in queries
-    assert "Beethoven Symphonies Nos 1 6" in queries
+    assert "Beethoven Symphonies Nos 1 6" in service.search_service._fallback_queries(
+        recommendation
+    )
     assert len(service.search_service._fallback_queries(recommendation)) <= 3
 
 

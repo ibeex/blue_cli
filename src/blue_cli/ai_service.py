@@ -28,9 +28,13 @@ from .tidal_service import TidalService
 from .work_identity import (
     CatalogueAliases,
     WorkKey,
+    WorkSignature,
+    signature_matches,
     wants_multiple_recordings,
     wants_work_set,
     work_keys,
+    work_query,
+    work_signatures,
 )
 
 rprint = console.print
@@ -298,6 +302,9 @@ class PromptTemplates:
               Use a single primary credited artist rather than inventing a combined artist name.
               Include a "work" field with composer and the requested work's number/catalogue
               identifier, e.g. "Beethoven Symphony No. 1 Op. 21", independent of the album title.
+              Keep the work field plain words: no commas, quotes, keys, couplings, or performer.
+              Use the release title as the catalogue credits it; composer-prefixed and coupled
+              releases are fine as long as the requested work is complete on the album.
               Prefer recordings covering consecutive requested works, without unrequested symphonies.
             - Return only a JSON array of objects with nonempty "artist" and "album" strings.
               For non-classical requests, the optional "work" field can be omitted.
@@ -606,6 +613,11 @@ class AlbumSearchService:
                 best = consider(self.tidal_service.search_albums(query))
                 if best is not None:
                     return best
+            for query in self._work_queries(recommendation):
+                rprint(f"[dim]Trying work search: {query}[/]")
+                best = consider(self.tidal_service.search_albums(query))
+                if best is not None:
+                    return best
 
             # Limit prompt size, ranking rather than blindly truncating catalogue order.
             target = self.normalize_album_title(recommendation.work or recommendation.album)
@@ -614,6 +626,7 @@ class AlbumSearchService:
                 key=lambda item: (
                     self._find_best_artist_match([{"artist": item.artist}], recommendation.artist)
                     is not None,
+                    self._matches_work_signature(recommendation, item.title, item.artist),
                     SequenceMatcher(None, target, self.normalize_album_title(item.title)).ratio(),
                 ),
                 reverse=True,
@@ -681,34 +694,51 @@ class AlbumSearchService:
 
     @classmethod
     def matches_requested_work(cls, recommendation: Recommendation, title: str) -> bool:
-        requested = cls.symphony_numbers(recommendation.work or recommendation.album)
-        is_symphony = bool(
-            re.search(
-                r"\bsymphon(?:y|ies)\b", recommendation.work or recommendation.album, re.IGNORECASE
-            )
-        )
-        if not is_symphony:
+        """Whether a release can contain the recommendation's recognized works."""
+        if not cls._work_oriented(recommendation):
             return True
         if re.search(r"\bcomplete\b|\bhighlights\b|\bexcerpts\b", title, re.IGNORECASE):
             return False
-        expected = cls.coverage_keys(recommendation)
-        if expected:
-            return cls.coverage_overlap(expected, cls.coverage_keys(recommendation, title))
-        numbers = set(cls.symphony_numbers(title))
-        return bool(numbers) and bool(numbers & set(requested))
+        return cls._matches_work_signature(recommendation, title)
 
-    @staticmethod
-    def coverage_overlap(left: set[tuple[str, int]], right: set[tuple[str, int]]) -> bool:
-        """Match coverage keys tolerating composer transliteration variants."""
-        return any(
-            left_number == right_number
-            and (
-                left_composer == right_composer
-                or SequenceMatcher(None, left_composer, right_composer).ratio() >= 0.85
-            )
-            for left_composer, left_number in left
-            for right_composer, right_number in right
+    @classmethod
+    def _request_signatures(cls, recommendation: Recommendation) -> list[WorkSignature]:
+        signatures = work_signatures(recommendation.work) if recommendation.work else []
+        return signatures or work_signatures(recommendation.album)
+
+    @classmethod
+    def _work_oriented(cls, recommendation: Recommendation) -> bool:
+        """Release titles with composer prefixes or named/numbered works."""
+        signatures = cls._request_signatures(recommendation)
+        if not signatures:
+            return False
+        return (
+            bool(recommendation.work)
+            or ":" in recommendation.album
+            or any(signature.kind or signature.identifiers for signature in signatures)
         )
+
+    @classmethod
+    def _matches_work_signature(
+        cls, recommendation: Recommendation, title: str, artist: str = ""
+    ) -> bool:
+        """Whether any requested work is identifiable in the release title."""
+        return any(
+            signature_matches(signature, title, artist)
+            for signature in cls._request_signatures(recommendation)
+        )
+
+    @classmethod
+    def _work_queries(cls, recommendation: Recommendation) -> list[str]:
+        """Short composer/work queries that Tidal ranks precisely."""
+        if not cls._work_oriented(recommendation):
+            return []
+        queries: list[str] = []
+        for signature in cls._request_signatures(recommendation):
+            for query in (work_query(signature), work_query(signature, reverse=True)):
+                if query and query not in queries:
+                    queries.append(query)
+        return queries[:3]
 
     @staticmethod
     def _fallback_queries(recommendation: Recommendation) -> list[str]:
@@ -774,6 +804,16 @@ class AlbumSearchService:
                         if self.normalize_name(credit) == self.normalize_name(album["artist"]):
                             return album
         # Classical titles add key, opus, nickname or coupling text that exact matching rejects.
+        request = Recommendation(target_artist, target_album, target_work)
+        if self._work_oriented(request):
+            signature_matches_found = [
+                album
+                for album in albums
+                if self._matches_work_signature(request, album["title"], album["artist"])
+            ]
+            if signature_matches_found:
+                match = self._find_best_artist_match(signature_matches_found, target_artist)
+                return match if match is not None else signature_matches_found[0]
         if target_work:
             work_matches = [
                 album for album in albums if self.title_contains_work(target_work, album["title"])
@@ -1397,7 +1437,7 @@ class AIRecommendationService:
                 if not isinstance(work, str):
                     raise ValueError("Uncertain track identity")
                 keys = work_keys(work, aliases=aliases)
-                if len(keys) != 1 or (len(existing) == 1 and keys != existing):
+                if len(keys) > 1 or (len(existing) == 1 and keys != existing):
                     raise ValueError("Inconsistent track identity")
                 identified.append(keys)
             return identified
@@ -1478,15 +1518,26 @@ class AIRecommendationService:
                         work_keys(track.get("title", ""), composer, kind, aliases)
                         for track in tracks
                     ]
-                    if any(len(keys) != 1 for keys in identities):
-                        identities = self._clarify_track_works(result, tracks, identities, aliases)
-                    works = set().union(*identities)
+                    known = set().union(*identities)
                     if not all(
-                        self.search_service.work_keys_overlap({key}, works) for key in requested
+                        self.search_service.work_keys_overlap({key}, known) for key in requested
                     ):
-                        raise SearchError(
-                            f"Album does not contain the requested work: {result.title}"
-                        )
+                        # Movement-only or abstract track titles need model identification;
+                        # a release whose tracks are all identified without the requested work
+                        # is confidently wrong.
+                        if all(identities):
+                            raise SearchError(
+                                f"Album does not contain the requested work: {result.title}"
+                            )
+                        identities = self._clarify_track_works(result, tracks, identities, aliases)
+                        known = set().union(*identities)
+                        if not all(
+                            self.search_service.work_keys_overlap({key}, known) for key in requested
+                        ):
+                            raise SearchError(
+                                f"Album does not contain the requested work: {result.title}"
+                            )
+                    works = known
                     if strict_request:
                         if not all(
                             any(
