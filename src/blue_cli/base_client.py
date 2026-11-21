@@ -5,19 +5,19 @@ from dataclasses import dataclass
 
 import jmespath
 import xmltodict
-from click import ClickException
 from pyfzf.pyfzf import FzfPrompt
-from requests import get, post
-from requests.exceptions import ConnectionError
+from requests import Response, get, post
+from requests.exceptions import ConnectionError as RequestsConnectionError
 from rich.progress import Progress
 
 from .console import console
+from .errors import BlueOSError
 from .playlist_service import PlaylistService
 
 rprint = console.print
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Song:
     artist: str
     title: str
@@ -25,9 +25,28 @@ class Song:
     song_id: int
     secs: int | None = None
     totlen: int | None = None
+    album_id: int | None = None
 
     def __str__(self):
         return f"{self.song_id}: {self.artist} - {self.album} - {self.title}"
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerState:
+    """Point-in-time player state from a single Status request."""
+
+    song: Song | None
+    volume: int | None
+    state: str | None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 def format_time(seconds: int) -> str:
@@ -50,29 +69,63 @@ class BluesoundBaseClient:
         method: str = "GET",
         params: dict | None = None,
         json: dict | None = None,
-    ):
+    ) -> Response:
         if endpoint.startswith("/"):
             endpoint = endpoint[1:]
         url = f"{self.url}/{endpoint}"
         request_func = get if method.upper() == "GET" else post
         try:
-            r = request_func(url, params=params, json=json)
-        except ConnectionError as err:
-            console.show_cursor()
-            raise ClickException("Connection error") from err
+            r = request_func(url, params=params, json=json, timeout=15)
+        except RequestsConnectionError as err:
+            raise BlueOSError(f"Could not connect to BlueOS at {self.url}") from err
         if r.status_code != 200:
-            console.show_cursor()
-            raise ClickException("HTTP Error")
+            raise BlueOSError(f"BlueOS returned HTTP {r.status_code} for {endpoint}")
         return r
 
-    def _parse_xml(self, response) -> dict:
+    def _parse_xml(self, response: Response | str) -> dict:
         # Handle both Response objects and strings
-        xml_text = response.text if hasattr(response, "text") else response
+        xml_text = response.text if isinstance(response, Response) else response
         obj = xmltodict.parse(xml_text, attr_prefix="", dict_constructor=dict)
         if obj is None:
-            console.show_cursor()
-            raise ClickException("Output parsing error")
+            raise BlueOSError("Could not parse BlueOS response")
         return obj
+
+    def get_status(self) -> dict:
+        """Return the raw parsed Status response."""
+        return self._parse_xml(self._make_request("Status"))
+
+    @staticmethod
+    def _parse_song(status: dict) -> Song | None:
+        s = jmespath.search("status.[song, album, artist, name, secs, totlen, albumid]", status)
+        if not isinstance(s, list) or len(s) < 4:
+            return None
+
+        song_id = _optional_int(s[0])
+        title = s[3]
+        if song_id is None or not title:
+            return None
+
+        return Song(
+            artist=str(s[2] or ""),
+            title=str(title),
+            album=str(s[1] or ""),
+            song_id=song_id,
+            secs=_optional_int(s[4]),
+            totlen=_optional_int(s[5]),
+            album_id=_optional_int(s[6]) if len(s) > 6 else None,
+        )
+
+    def get_current_song(self) -> Song | None:
+        """Return the currently playing song, or None when nothing is playing."""
+        return self._parse_song(self.get_status())
+
+    def get_player_state(self) -> PlayerState:
+        """Return song, volume, and playback state from a single Status request."""
+        status = self.get_status()
+        volume = _optional_int(jmespath.search("status.volume", status))
+        state_value = jmespath.search("status.state", status)
+        state = state_value if isinstance(state_value, str) else None
+        return PlayerState(song=self._parse_song(status), volume=volume, state=state)
 
     def pause(self) -> None:
         self._make_request("Pause", params={"toggle": 1})
@@ -83,32 +136,47 @@ class BluesoundBaseClient:
     def back(self):
         self._make_request("Back")
 
-    def volume(self, new_volume: int | None):
-        r = self._make_request("Status")
-        obj = self._parse_xml(r)
-        current_volume = jmespath.search("status.volume", obj)
-        if not isinstance(current_volume, str):
-            raise TypeError
-        current_volume = int(current_volume)
-        rprint(f"Volume is {current_volume}")
-        if new_volume is None:
+    def get_volume(self) -> int:
+        volume = self.get_player_state().volume
+        if volume is None:
+            raise BlueOSError("BlueOS did not report a volume level")
+        return volume
+
+    def set_volume(self, new_volume: int) -> None:
+        current_volume = self.get_volume()
+        if new_volume == current_volume:
             return
-        if new_volume - current_volume > 5:
-            for vol in range(current_volume + 1, new_volume + 1):
+        if abs(new_volume - current_volume) > 5:
+            step = 1 if new_volume > current_volume else -1
+            for vol in range(current_volume + step, new_volume + step, step):
                 self._make_request("Volume", method="POST", json={"level": vol})
                 time.sleep(0.1)
         else:
             self._make_request("Volume", method="POST", json={"level": new_volume})
+
+    def volume(self, new_volume: int | None):
+        current_volume = self.get_volume()
+        rprint(f"Volume is {current_volume}")
+        if new_volume is None:
+            return
+        self.set_volume(new_volume)
         rprint(f"Volume new {new_volume}")
 
     def enqueue_album(self, album_url: str):
         self._make_request(album_url)
 
-    def next_album(self):
-        status = self.current_song_id()
-        next_song_id = self.playlist_service.find_next_album_song_id(status.song_id)
-        if next_song_id:
-            self._make_request("Play", params={"id": next_song_id})
+    def get_album_art_url(self, album_id: int | str) -> str:
+        return f"{self.url}/Artwork?service=Tidal&albumid={album_id}"
+
+    def next_album(self) -> bool:
+        current_song = self.get_current_song()
+        if current_song is None:
+            return False
+        next_song_id = self.playlist_service.find_next_album_song_id(current_song.song_id)
+        if next_song_id is None:
+            return False
+        self._make_request("Play", params={"id": next_song_id})
+        return True
 
     def show_queue(self):
         s = console.status("Getin queue...")
@@ -159,22 +227,9 @@ class BluesoundBaseClient:
         rprint("Queue cleaned up.")
 
     def current_song_id(self) -> Song:
-        r = self._make_request("Status")
-        obj = self._parse_xml(r)
-        s = jmespath.search("status.[song, album, artist, name, secs, totlen]", obj)
-        if not isinstance(s, list):
-            raise TypeError
-        # Extract optional time fields, converting to int if present
-        secs = int(s[4]) if s[4] is not None else None
-        totlen = int(s[5]) if s[5] is not None else None
-        song = Song(
-            artist=s[2],
-            title=s[3],
-            album=s[1],
-            song_id=int(s[0]),
-            secs=secs,
-            totlen=totlen,
-        )  # type: ignore
+        song = self.get_current_song()
+        if song is None:
+            raise BlueOSError("No song is currently playing")
         return song
 
     def cleanup(self):

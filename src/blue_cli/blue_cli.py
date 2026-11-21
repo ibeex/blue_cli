@@ -7,6 +7,7 @@ import click
 from .ai_service import AIRecommendationService
 from .config import get_host, get_port
 from .console import console
+from .errors import BlueOSError
 from .tidal_service import TidalService
 from .usb_service import UsbService as BlueSound
 
@@ -51,7 +52,10 @@ def with_blue_service(func):
         host = kwargs.pop("host")
         port = kwargs.pop("port")
         blue = BlueSound(host, port)
-        return func(blue, *args, **kwargs)
+        try:
+            return func(blue, *args, **kwargs)
+        except BlueOSError as err:
+            raise click.ClickException(str(err)) from err
 
     return wrapper
 

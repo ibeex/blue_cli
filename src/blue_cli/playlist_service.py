@@ -6,6 +6,8 @@ import jmespath
 import xmltodict
 from requests import Response
 
+from .errors import BlueOSError
+
 
 @dataclass
 class PlaylistSong:
@@ -164,12 +166,7 @@ class PlaylistService:
         """Parse playlist XML response into PlaylistInfo"""
         obj = xmltodict.parse(response.text, attr_prefix="", dict_constructor=dict)
         if obj is None:
-            from click import ClickException
-
-            from .console import console
-
-            console.show_cursor()
-            raise ClickException("Output parsing error")
+            raise BlueOSError("Could not parse BlueOS playlist response")
 
         # Extract all required fields: id, artist, album, title, albumid
         songs_data = jmespath.search("playlist.song[].[id, art, alb, title, albumid]", obj)
