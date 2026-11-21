@@ -784,6 +784,16 @@ class AlbumSearchService:
         matching = [album for album in albums if cls._album_year(album.get("date")) == release_year]
         return matching + [album for album in albums if album not in matching]
 
+    @classmethod
+    def _numbered_title_match(cls, title: str, target_album: str) -> bool:
+        """Match self-titled releases that TIDAL numbers, e.g. Peter Gabriel 1: Car."""
+        target = cls.normalize_name(target_album)
+        album = cls.normalize_name(title)
+        if not target or not album.startswith(target):
+            return False
+        suffix = album[len(target) :]
+        return bool(suffix) and suffix[0].isdigit()
+
     @staticmethod
     def _strip_remaster_suffix(title: str) -> str:
         # Only mastering metadata is interchangeable; live/remix/deluxe titles stay distinct.
@@ -830,6 +840,16 @@ class AlbumSearchService:
                     for album in title_matches:
                         if self.normalize_name(credit) == self.normalize_name(album["artist"]):
                             return album
+        if release_year is not None:
+            numbered_matches = [
+                album
+                for album in albums
+                if self._album_year(album.get("date")) == release_year
+                and self._numbered_title_match(album["title"], target_album)
+            ]
+            match = self._find_best_artist_match(numbered_matches, target_artist)
+            if match is not None:
+                return match
         # Classical titles add key, opus, nickname or coupling text that exact matching rejects.
         request = Recommendation(target_artist, target_album, target_work)
         if self._work_oriented(request):

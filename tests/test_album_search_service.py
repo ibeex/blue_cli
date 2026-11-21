@@ -442,6 +442,73 @@ class TestAlbumSearchService:
         assert result is not None
         assert result.id == 55
 
+    def test_find_best_match_resolves_numbered_self_titled_album_by_year(self):
+        albums = [
+            {
+                "id": "1",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel 1: Car (Remastered)",
+                "date": "1977-01-01",
+                "tracks": "9",
+            },
+            {
+                "id": "2",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel 2: Scratch (Remastered)",
+                "date": "1978-01-01",
+                "tracks": "10",
+            },
+            {
+                "id": "3",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel 3: Melt (Remastered)",
+                "date": "1980-05-23",
+                "tracks": "10",
+            },
+        ]
+        self.mock_tidal_service.search_albums.return_value = albums
+
+        result = self.search_service.find_best_match(
+            Recommendation("Peter Gabriel", "Peter Gabriel"), release_year=1980
+        )
+
+        assert result is not None
+        assert result.id == 3
+
+    def test_numbered_self_titled_match_requires_release_year(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {
+                "id": "1",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel 1: Car (Remastered)",
+                "date": "1977-01-01",
+                "tracks": "9",
+            }
+        ]
+
+        result = self.search_service.find_best_match(
+            Recommendation("Peter Gabriel", "Peter Gabriel")
+        )
+
+        assert result is None
+
+    def test_numbered_self_titled_match_requires_matching_year(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {
+                "id": "1",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel 1: Car (Remastered)",
+                "date": "1977-01-01",
+                "tracks": "9",
+            }
+        ]
+
+        result = self.search_service.find_best_match(
+            Recommendation("Peter Gabriel", "Peter Gabriel"), release_year=1999
+        )
+
+        assert result is None
+
 
 class TestRecommendation:
     """Test the Recommendation dataclass."""
