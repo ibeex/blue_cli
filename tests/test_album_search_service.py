@@ -391,6 +391,57 @@ class TestAlbumSearchService:
         self.mock_tidal_service.search_albums.assert_called_once_with("A.R. Kane 69")
         assert result is not None
 
+    def test_find_best_match_prefers_requested_release_year(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {
+                "id": "101",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel",
+                "date": "1977-02-25",
+                "tracks": "9",
+            },
+            {
+                "id": "202",
+                "artist": "Peter Gabriel",
+                "title": "Peter Gabriel",
+                "date": "1980-05-30",
+                "tracks": "10",
+            },
+        ]
+
+        result = self.search_service.find_best_match(
+            Recommendation("Peter Gabriel", "Peter Gabriel"), release_year=1980
+        )
+
+        assert result is not None
+        assert result.id == 202
+
+    def test_release_year_does_not_override_artist_and_title(self):
+        self.mock_tidal_service.search_albums.return_value = [
+            {
+                "id": "55",
+                "artist": "Zaho de Sagazan",
+                "title": "La symphonie des éclairs (Orchestral Odyssey)",
+                "date": "2023-04-14",
+                "tracks": "16",
+            },
+            {
+                "id": "66",
+                "artist": "Vulgaires Machins",
+                "title": "Contempler l'abîme",
+                "date": "2025-11-14",
+                "tracks": "12",
+            },
+        ]
+
+        result = self.search_service.find_best_match(
+            Recommendation("Zaho de Sagazan", "La Symphonie des éclairs (Orchestral Odyssey)"),
+            release_year=2025,
+        )
+
+        assert result is not None
+        assert result.id == 55
+
 
 class TestRecommendation:
     """Test the Recommendation dataclass."""

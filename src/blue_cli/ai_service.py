@@ -580,6 +580,7 @@ class AlbumSearchService:
         covered: set[tuple[str, int]] | None = None,
         allowed: set[tuple[str, int]] | None = None,
         excluded_ids: set[int] | None = None,
+        release_year: int | None = None,
     ) -> SearchResult | None:
         """Find the best matching album on Tidal using multiple search strategies."""
         self.candidates = []
@@ -598,7 +599,11 @@ class AlbumSearchService:
                 result = self._create_search_result(album)
                 collected.setdefault(result.id, result)
             best = self._select_best_match(
-                albums, recommendation.artist, recommendation.album, recommendation.work
+                albums,
+                recommendation.artist,
+                recommendation.album,
+                recommendation.work,
+                release_year=release_year,
             )
             return self._create_search_result(best) if best is not None else None
 
@@ -764,6 +769,22 @@ class AlbumSearchService:
         return "".join(char for char in normalized if char.isalnum())
 
     @staticmethod
+    def _album_year(date_value: object) -> int | None:
+        match = re.search(r"\b(\d{4})\b", str(date_value or ""))
+        if not match:
+            return None
+        year = int(match.group(1))
+        return year if 1000 <= year <= 3000 else None
+
+    @classmethod
+    def _prefer_release_year(cls, albums: list[dict], release_year: int | None) -> list[dict]:
+        """Put releases from the requested year first without excluding other matches."""
+        if release_year is None:
+            return albums
+        matching = [album for album in albums if cls._album_year(album.get("date")) == release_year]
+        return matching + [album for album in albums if album not in matching]
+
+    @staticmethod
     def _strip_remaster_suffix(title: str) -> str:
         # Only mastering metadata is interchangeable; live/remix/deluxe titles stay distinct.
         remaster = r"(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?(?:\s+version)?"
@@ -779,7 +800,12 @@ class AlbumSearchService:
         return cls.normalize_name(cls._strip_remaster_suffix(title))
 
     def _select_best_match(
-        self, albums: list[dict], target_artist: str, target_album: str, target_work: str = ""
+        self,
+        albums: list[dict],
+        target_artist: str,
+        target_album: str,
+        target_work: str = "",
+        release_year: int | None = None,
     ) -> dict | None:
         # Prefer the requested release exactly before accepting a remastered edition.
         for strip_remaster in (False, True):
@@ -795,6 +821,7 @@ class AlbumSearchService:
                     r"\d+", title
                 ) == re.findall(r"\d+", target):
                     title_matches.append(album)
+            title_matches = self._prefer_release_year(title_matches, release_year)
             match = self._find_best_artist_match(title_matches, target_artist)
             if match is not None:
                 return match
@@ -812,12 +839,16 @@ class AlbumSearchService:
                 if self._matches_work_signature(request, album["title"], album["artist"])
             ]
             if signature_matches_found:
+                signature_matches_found = self._prefer_release_year(
+                    signature_matches_found, release_year
+                )
                 match = self._find_best_artist_match(signature_matches_found, target_artist)
                 return match if match is not None else signature_matches_found[0]
         if target_work:
             work_matches = [
                 album for album in albums if self.title_contains_work(target_work, album["title"])
             ]
+            work_matches = self._prefer_release_year(work_matches, release_year)
             match = self._find_best_artist_match(work_matches, target_artist)
             if match is not None:
                 return match
@@ -1260,7 +1291,9 @@ class AIRecommendationService:
             seen.add(key)
             attempted.append(recommendation)
             self.display_service.display_search_progress(recommendation)
-            search_options = {"excluded_ids": excluded_ids} if album_validator else {}
+            search_options: dict[str, Any] = (
+                {"excluded_ids": excluded_ids} if album_validator else {}
+            )
             result = self.search_service.find_best_match(
                 recommendation, covered=covered, allowed=allowed, **search_options
             )
