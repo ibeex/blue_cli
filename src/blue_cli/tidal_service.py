@@ -265,10 +265,6 @@ class TidalService(BluesoundBaseClient):
                 else None
             )
 
-        if not albums:
-            rprint("No albums found.")
-            exit(1)
-
         return albums
 
     @cache.memoize(expire=60 * 60 * 24 * 30)
@@ -581,20 +577,20 @@ class TidalService(BluesoundBaseClient):
             self.add_album_to_queue(album_id)
             rprint(f"Added {selected_album} to queue.")
 
-    def add_latest_albums_from_favorites(
+    def _queue_albums_from_favorites(
         self,
         number_of_albums: int,
-        random_selection=False,
-        random_random=False,
-        include_variants=False,
-        verbose=False,
-    ):
+        *,
+        random_selection: bool = False,
+        random_random: bool = False,
+        include_variants: bool = False,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
         favorite_artists = self.search_artists()
         if random_selection:
             random.shuffle(favorite_artists)
 
-        added_albums = []
-        skipped_albums = []
+        added_albums: list[str] = []
+        skipped_albums: list[dict[str, Any]] = []
         for artist in favorite_artists:
             if len(added_albums) >= number_of_albums:
                 break
@@ -617,6 +613,33 @@ class TidalService(BluesoundBaseClient):
 
             self.add_album_to_queue(selected["id"])
             added_albums.append(f"{artist['name']}: {selected['title']}")
+
+        return added_albums, skipped_albums
+
+    def queue_random_favorite_albums(self, number_of_albums: int = 5) -> list[str]:
+        """Queue random albums from favorite artists using the CLI's default selection."""
+        added_albums, _ = self._queue_albums_from_favorites(
+            number_of_albums,
+            random_selection=True,
+            random_random=True,
+            include_variants=False,
+        )
+        return added_albums
+
+    def add_latest_albums_from_favorites(
+        self,
+        number_of_albums: int,
+        random_selection=False,
+        random_random=False,
+        include_variants=False,
+        verbose=False,
+    ):
+        added_albums, skipped_albums = self._queue_albums_from_favorites(
+            number_of_albums,
+            random_selection=random_selection,
+            random_random=random_random,
+            include_variants=include_variants,
+        )
 
         rprint(f"[bold green]Added {'random' if random_random else 'latest'} albums:[/bold green]")
         for album in added_albums:
