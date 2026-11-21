@@ -125,6 +125,12 @@ class BluesoundBaseClient:
         volume = _optional_int(jmespath.search("status.volume", status))
         state_value = jmespath.search("status.state", status)
         state = state_value if isinstance(state_value, str) else None
+        if state == "play":
+            state = "playing"
+        elif state == "pause":
+            state = "paused"
+        elif state == "stop":
+            state = "stopped"
         return PlayerState(song=self._parse_song(status), volume=volume, state=state)
 
     def pause(self) -> None:
