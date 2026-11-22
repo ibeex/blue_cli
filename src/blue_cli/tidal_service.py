@@ -14,11 +14,13 @@ import html2text
 import jmespath
 from diskcache import Cache
 from pyfzf.pyfzf import FzfPrompt
+from requests import Response
 from rich import print as rprint
 
 from .base_client import BluesoundBaseClient
 from .config import DEFAULT_CLASSICAL_ARTISTS, cache_path, classical_artists_path
 from .console import console
+from .errors import BlueOSError
 
 cache = Cache(cache_path, disk_pickle_protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -517,20 +519,34 @@ class TidalService(BluesoundBaseClient):
 
         return tracks
 
-    def add_album_to_queue(self, album_id: int):
-        url = f"Add?service=Tidal&albumid={album_id}&playnow=-1&where=last"
-        response = self._make_request(url)
-        # BluOS can reject an operation in XML while still returning HTTP 200.
-        pending = [self._parse_xml(response)]
+    def _raise_on_player_error(self, response: Response | str, action: str) -> None:
+        """BluOS can reject an operation in XML while still returning HTTP 200."""
+        text = response.text if isinstance(response, Response) else response
+        if not text.lstrip().startswith("<"):
+            return
+
+        pending = [self._parse_xml(text)]
         while pending:
             node = pending.pop()
             if isinstance(node, dict):
                 for key, value in node.items():
                     if key.casefold() == "error":
-                        raise ValueError(f"Player rejected album {album_id}: {value}")
+                        raise ValueError(f"Player rejected {action}: {value}")
                     pending.append(value)
             elif isinstance(node, list):
                 pending.extend(node)
+
+    def add_album_to_queue(self, album_id: int):
+        url = f"Add?service=Tidal&albumid={album_id}&playnow=-1&where=last"
+        self._raise_on_player_error(self._make_request(url), f"album {album_id}")
+
+    def add_top_tracks_to_queue(self, artist_id: str | int) -> None:
+        url = f"Add?service=Tidal&artistid={artist_id}&playnow=-1&where=last"
+        self._raise_on_player_error(self._make_request(url), f"top tracks of artist {artist_id}")
+
+    def play_artist_radio(self, station_id: str) -> None:
+        url = f"Play?url={urllib.parse.quote(station_id, safe='')}"
+        self._raise_on_player_error(self._make_request(url), f"radio {station_id}")
 
     def add_song_to_queue(self, song_id: int | str):
         url = f"Add?service=Tidal&songid={song_id}&playnow=-1&where=last"
@@ -585,13 +601,30 @@ class TidalService(BluesoundBaseClient):
         random_random: bool = False,
         include_variants: bool = False,
     ) -> tuple[list[str], list[dict[str, Any]]]:
-        favorite_artists = self.search_artists()
+        return self._queue_albums_from_artists(
+            self.search_artists(),
+            number_of_albums,
+            random_selection=random_selection,
+            random_random=random_random,
+            include_variants=include_variants,
+        )
+
+    def _queue_albums_from_artists(
+        self,
+        artists: list[Any],
+        number_of_albums: int,
+        *,
+        random_selection: bool = False,
+        random_random: bool = False,
+        include_variants: bool = False,
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        artists = list(artists)
         if random_selection:
-            random.shuffle(favorite_artists)
+            random.shuffle(artists)
 
         added_albums: list[str] = []
         skipped_albums: list[dict[str, Any]] = []
-        for artist in favorite_artists:
+        for artist in artists:
             if len(added_albums) >= number_of_albums:
                 break
 
@@ -722,6 +755,140 @@ class TidalService(BluesoundBaseClient):
             rprint(f"[bold green]✓ Successfully added '{artist_name}' to favorites![/bold green]")
         except Exception as e:
             rprint(f"[red]✗ Failed to add artist to favorites: {e}[/red]")
+
+    @cache.memoize(expire=60 * 60 * 24 * 7)
+    def get_similar_artists(self, artist_id: str | int) -> list[dict[str, Any]]:
+        """Return Tidal's related artists (the artist page's "Similar Artists")."""
+        url = f"Artists?service=Tidal&artistid={artist_id}&category=related"
+        obj = self._parse_xml(self._make_request(url))
+        arts = (obj.get("artists") or {}).get("art")
+        if not arts:
+            return []
+        if isinstance(arts, dict):
+            arts = [arts]
+
+        similar = []
+        for art in arts:
+            name = str(art.get("#text") or "").strip()
+            if not name:
+                continue
+            similar.append(
+                {
+                    "id": str(art.get("artistid") or ""),
+                    "name": name,
+                    "similarstationid": art.get("similarstationid")
+                    or f"Tidal:radio:artist/{art.get('artistid')}",
+                    "isFavourite": art.get("isFavourite") == "1",
+                }
+            )
+        return similar
+
+    def resolve_artist(self, artist: str) -> tuple[str, str]:
+        """Resolve an artist name, or the current track's artist, to a Tidal (id, name)."""
+        if not artist:
+            status = self.get_status()
+            artist_id = jmespath.search("status.artistid", status)
+            artist_name = jmespath.search("status.artist", status)
+            if artist_id and artist_name:
+                return str(artist_id), str(artist_name)
+            artist = console.input("Artist: ")
+
+        matches = self.search_artists(artist)
+        if not matches:
+            raise BlueOSError(f"No Tidal artist found for {artist!r}")
+
+        exact = [match for match in matches if match["name"].casefold() == artist.casefold()]
+        if len(exact) == 1:
+            return str(exact[0]["id"]), exact[0]["name"]
+        if len(matches) == 1:
+            return str(matches[0]["id"]), matches[0]["name"]
+
+        selected = self.select_artist(matches)
+        if selected is None:
+            raise BlueOSError("No artist selected")
+        return str(selected["id"]), selected["name"]
+
+    def select_artist(self, artists: list[Any], *, multi: bool = False) -> Any:
+        """Pick an artist with fzf. Returns None when the selection is cancelled."""
+        lines = [f"{artist['id']}\t{artist['name']}" for artist in artists]
+        artists_by_id = {str(artist["id"]): artist for artist in artists}
+        header = "enter: select | tab: select more | esc: cancel" if multi else "enter: select"
+        options = f"fzf --tmux 90%,80% --delimiter '\t' --with-nth=2.. --header '{header}'"
+        if multi:
+            options += " --multi"
+
+        try:
+            chosen = FzfPrompt(options).prompt(lines) or []
+        except IndexError:
+            return [] if multi else None
+
+        picked = []
+        for line in chosen:
+            artist = artists_by_id.get(str(line).split("\t", 1)[0])
+            if artist is not None:
+                picked.append(artist)
+        return picked if multi else (picked[0] if picked else None)
+
+    def cli_related_artists(
+        self,
+        artist: str,
+        *,
+        queue: bool = False,
+        latest: bool = False,
+        tracks: bool = False,
+        radio: bool = False,
+        include_variants: bool = False,
+    ) -> None:
+        """List artists similar to artist; optionally queue their music or play radio."""
+        artist_id, artist_name = self.resolve_artist(artist)
+        similar = self.get_similar_artists(artist_id)
+        if not similar:
+            rprint(f"No similar artists found for [bold blue]{artist_name}[/bold blue].")
+            return
+
+        rprint(f"[bold green]Artists similar to {artist_name} ({len(similar)}):[/bold green]")
+        for similar_artist in similar:
+            favourite = " [yellow]★[/yellow]" if similar_artist["isFavourite"] else ""
+            rprint(f"- {similar_artist['name']}{favourite}")
+
+        if not (queue or radio):
+            return
+
+        picked = self.select_artist(similar, multi=queue)
+        if queue:
+            if not picked:
+                rprint("No artists selected.")
+                return
+
+            if tracks:
+                entries = []
+                for similar_artist in picked:
+                    self.add_top_tracks_to_queue(similar_artist["id"])
+                    entries.append(f"{similar_artist['name']}: top tracks")
+                rprint(f"[bold green]Added top tracks from {len(entries)} artists:[/bold green]")
+                for entry in entries:
+                    rprint(f"- {entry}")
+                return
+
+            added_albums, skipped_albums = self._queue_albums_from_artists(
+                picked,
+                len(picked),
+                random_selection=True,
+                random_random=not latest,
+                include_variants=include_variants,
+            )
+            rprint(f"[bold green]Added albums from {len(added_albums)} artists:[/bold green]")
+            for entry in added_albums:
+                rprint(f"- {entry}")
+            if skipped_albums:
+                rprint(f"[dim](Skipped {len(skipped_albums)} variant albums)[/dim]")
+            return
+
+        if not picked:
+            rprint("No artist selected.")
+            return
+        self.play_artist_radio(picked["similarstationid"])
+        rprint(f"Playing [bold blue]{picked['name']}[/bold blue] radio.")
 
     def export_favorite_artists(self):
         """Export all favorite artists"""

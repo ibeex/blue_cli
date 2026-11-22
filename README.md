@@ -122,6 +122,17 @@ blue_cli usb
 # Search Tidal online streaming
 blue_cli online
 
+# Artists Tidal lists as similar to the current track (or a given artist)
+blue_cli online related
+blue_cli online related "The Corrs"
+
+# Pick similar artists to queue one random album each, or queue top tracks
+blue_cli online related --queue
+blue_cli online related --queue --tracks
+
+# Play the related-artists radio of a picked similar artist
+blue_cli online related --radio
+
 # Get AI recommendations based on currently playing track
 blue_cli ai
 

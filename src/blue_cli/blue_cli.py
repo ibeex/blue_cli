@@ -72,7 +72,10 @@ def with_tidal_service(func):
         host = kwargs.pop("host")
         port = kwargs.pop("port")
         tidal = TidalService(host=host, port=port)
-        return func(tidal, *args, **kwargs)
+        try:
+            return func(tidal, *args, **kwargs)
+        except BlueOSError as err:
+            raise click.ClickException(str(err)) from err
 
     return wrapper
 
@@ -175,6 +178,30 @@ def search(tidal: TidalService, keyword, album, song, favorites):
         )
     else:
         tidal.cli_search_artist(keyword)
+
+
+@online.command()
+@click.argument("artist", required=False)
+@click.option("--queue", "queue_", "-q", is_flag=True, help="Pick similar artists to queue")
+@click.option("--latest", "-l", is_flag=True, help="With --queue: latest album instead of random")
+@click.option("--tracks", "-t", is_flag=True, help="With --queue: top tracks instead of albums")
+@click.option("--include-variants", "-V", is_flag=True, help="Include deluxe/remix versions")
+@click.option("--radio", "-r", is_flag=True, help="Play the picked artist's related radio")
+@with_tidal_service
+def related(tidal: TidalService, artist, queue_, latest, tracks, include_variants, radio):
+    """List Tidal artists similar to ARTIST (default: currently playing)"""
+    if queue_ and radio:
+        raise click.UsageError("--queue and --radio are mutually exclusive")
+    if (latest or tracks or include_variants) and not queue_:
+        raise click.UsageError("--latest, --tracks and --include-variants require --queue")
+    tidal.cli_related_artists(
+        artist,
+        queue=queue_,
+        latest=latest,
+        tracks=tracks,
+        radio=radio,
+        include_variants=include_variants,
+    )
 
 
 @online.command()
