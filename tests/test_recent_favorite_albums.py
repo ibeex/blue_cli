@@ -2,7 +2,7 @@ import json
 from datetime import date, timedelta
 from unittest.mock import Mock
 
-from blue_cli.tidal_service import TidalService, _deduplicate_album_qualities
+from blue_cli.tidal_service import TidalService, deduplicate_album_qualities
 
 
 def _album(album_id: str, release_date: date) -> dict[str, str]:
@@ -21,7 +21,7 @@ def test_deduplicate_album_qualities_prefers_hd_over_cd_and_other_qualities():
     hd = {**cd, "id": "hd", "quality": "hd"}
     other_quality = {**cd, "id": "other", "quality": "mqa"}
 
-    assert _deduplicate_album_qualities([other_quality, cd, hd]) == [hd]
+    assert deduplicate_album_qualities([other_quality, cd, hd]) == [hd]
 
 
 def test_recent_album_selector_adds_on_enter_without_closing_fzf(monkeypatch):
@@ -103,3 +103,30 @@ def test_recent_album_search_caches_results_for_fzf_preview(tmp_path, monkeypatc
 
     assert json.loads((tmp_path / "albums.json").read_text()) == albums
     service.add_recent_albums_with_fzf.assert_called_once_with(albums)
+
+
+def test_artist_album_picker_keeps_only_best_quality(tmp_path, monkeypatch):
+    class FakeFzfPrompt:
+        def __init__(self, _option):
+            pass
+
+        def prompt(self, _artists):
+            return ["Artist"]
+
+    monkeypatch.setattr("blue_cli.tidal_service.FzfPrompt", FakeFzfPrompt)
+    monkeypatch.setattr("blue_cli.tidal_service.cache_path", tmp_path)
+    service = TidalService("localhost", 11000)
+    cd = {
+        "id": "cd",
+        "artist": "Artist",
+        "title": "Album",
+        "date": "2026-08-12",
+        "tracks": "10",
+        "quality": "cd",
+    }
+    hd = {**cd, "id": "hd", "quality": "hd"}
+    service.get_albums = Mock(return_value=[cd, hd])
+
+    albums = service.select_albums_by_artists([{"id": "1", "name": "Artist"}])
+
+    assert albums == [hd]

@@ -50,7 +50,7 @@ def _album_quality_rank(album: dict[str, Any]) -> int:
     return 0
 
 
-def _deduplicate_album_qualities(albums: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def deduplicate_album_qualities(albums: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep the best available quality for each album release."""
     best_albums = {}
     for album in albums:
@@ -62,6 +62,10 @@ def _deduplicate_album_qualities(albums: list[dict[str, Any]]) -> list[dict[str,
         if existing is None or _album_quality_rank(album) > _album_quality_rank(existing):
             best_albums[release_key] = album
     return list(best_albums.values())
+
+
+# Deprecated alias kept so existing callers/tests importing the private name keep working.
+_deduplicate_album_qualities = deduplicate_album_qualities
 
 
 def _is_album_variant(title: str) -> bool:
@@ -214,7 +218,7 @@ class TidalService(BluesoundBaseClient):
                     recent_albums.append(album)
                     seen_album_ids.add(album_id)
 
-        albums_with_best_quality = _deduplicate_album_qualities(recent_albums)
+        albums_with_best_quality = deduplicate_album_qualities(recent_albums)
         return sorted(albums_with_best_quality, key=lambda album: album["date"], reverse=True)
 
     def cli_search_recent_favorite_albums(self, days: int, classical_only: bool = False) -> None:
@@ -314,6 +318,7 @@ class TidalService(BluesoundBaseClient):
 
         if not albums:
             return []
+        albums = deduplicate_album_qualities(albums)
         json.dump(albums, open(cache_path / "albums.json", "w"))
         return albums
 
@@ -560,7 +565,7 @@ class TidalService(BluesoundBaseClient):
             rprint("No artist found or selected.")
             exit(1)
         artist_id = [x["id"] for x in artists if x["name"] == artist][0]
-        albums = self.get_albums(artist_id)
+        albums = deduplicate_album_qualities(self.get_albums(artist_id))
         json.dump(albums, open(cache_path / "albums.json", "w"))
         return albums
 
