@@ -134,7 +134,16 @@ class BluesoundBaseClient:
         return PlayerState(song=self._parse_song(status), volume=volume, state=state)
 
     def pause(self) -> None:
+        """Toggle between playing and paused."""
         self._make_request("Pause", params={"toggle": 1})
+
+    def play(self) -> None:
+        """Start or resume playback of the current queue."""
+        self._make_request("Play")
+
+    def stop(self) -> None:
+        """Stop playback without clearing the queue."""
+        self._make_request("Stop")
 
     def next_song(self):
         self._make_request("Skip")
